@@ -2,7 +2,6 @@
 IST (also known as Internet Servicing Tool) is a free and open-source batch script designed to do network based tasks. like "ist -check-network" for checking download and upload speed. or "ist -ip" to show the ip address and many more
 
 here are all commands:
-======================================================================================================================
    ist -check-network       - Runs the speedtest script
    ist -ip                  - Shows your IP addresses
    ist -dns [user input]    - Shows the DNS of a URL
@@ -18,12 +17,9 @@ here are all commands:
    ist -list-connected-nets - Shows every network ever connected to the windows device
    ist --help               - Shows the Help Centre
    ist --version            - Shows the IST version and the IST-network-configuration-driver version
-Need more help? Go to https://github.com/Stefi9/IST/issues for more info.
 
-======================================================================================================================
+                                                   
                                                    DEAD ZONE
-======================================================================================================================
 The following commands are dangerous to the windows device. May harm your device.
 proceed with caution.
-======================================================================================================================
    ist --deadzone-renew     - Makes a new IP address for your windows device
