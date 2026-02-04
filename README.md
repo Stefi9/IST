@@ -1,5 +1,6 @@
 # IST - Internet Servicing Tool
-IST (also known as Internet Servicing Tool) is a free and open-source batch script designed to do network based tasks. like "ist -check-network" for checking download and upload speed. or "ist -ip" to show the ip address and many more
+IST (also known as Internet Servicing Tool) is a free and open-source batch script designed to do network based tasks. Like "ist -check-network" for checking download and upload speed. or "ist -ip" to show the ip address and many more.
+For most of these commands, you need to install the drivers, also in the zip file called "IST-network-configuration-drivers.zip" which adds support for "ist -check-network" and many more. Otherwise, most functions would not work.
 
 here are all commands:
    "ist -check-network"       - Runs the speedtest script
