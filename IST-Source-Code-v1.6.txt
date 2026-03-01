@@ -1,0 +1,1558 @@
+since IST is Free and Open-Source Software, Here is the IST Source Code:
+
+@echo off
+SETLOCAL EnableDelayedExpansion
+setlocal
+
+:: IST Is a 64-bit program...
+if /i "%PROCESSOR_ARCHITECTURE%"=="x86" if not defined PROCESSOR_ARCHITEW6432 (
+    echo SYSERROR: IST is Unsupported on your 32-bit Opreating System
+    echo Because of that, IST cannot be used.
+    echo ERROR-CODE: 0x32
+    pause
+    exit /b
+)
+:: So no 32-bit user can use it (will just crash)
+
+if /i "%~1"=="--EXEC-UNINSTALL" GOTO :PROCEED_UNINSTALL
+
+:: Variables
+
+:: Version
+set "version=1.6"
+set "ISTNCDV=1.3"
+
+:: The directory of IST
+set "IST-DIR=%~dp0"
+
+:: If block (for PATH users)
+if "%IST-DIR:~-1%"=="\" set "IST-DIR=%IST-DIR:~0,-1%"
+
+:: The type of IST
+if exist "%PROGRAMFILES%\IST\IST.bat" (
+        set "type=install"
+        set "ISTPGF=%PROGRAMFILES%\IST"
+)
+if not exist "%PROGRAMFILES%\IST\IST.bat" (
+        set "type=portable"
+        set "ISTPGF=N/A"
+)
+
+:: Administrator rights?
+net session >nul 2>&1
+if %errorLevel% == 0 (
+    set "ADMIN_STATUS=1"
+    set "ADMIN_LABEL=[ADMIN]"
+) else (
+    set "ADMIN_STATUS=0"
+    set "ADMIN_LABEL=[USER]"
+)
+
+:: Title Variable
+set "TitVar=IST %version% %ADMIN_LABEL%"
+
+:: Lines of Code
+set "line_count=0"
+for /f %%a in ('find /c /v "" ^< "%~f0"') do set "line_count=%%a"
+
+:: Title
+title %TitVar%
+
+:: Banner
+for /f "tokens=2 delims=:" %%a in ('mode con ^| findstr Columns') do set /a "cols=%%a-2"
+set "line="
+for /l %%i in (1,1,%cols%) do set "line=!line!="
+set /a "padding=(cols - 35) / 2"
+set "spaces="
+for /l %%i in (1,1,%padding%) do set "spaces=!spaces! "
+
+:: cmd_count
+set "cmd_count=52"
+set "Ncmd_count=8"
+
+:: YOLO through DeadZone
+set "YOLO=0"
+for %%x in (%*) do if /i "%%x"=="--yolo" set "YOLO=1"
+
+:: Log Maintenance: Prevent infinite growth
+if exist "%PROGRAMFILES%\IST\log-files" (
+    :: If Action log exists and is > 500KB, wipe it
+    powershell -NoProfile -Command "$path='%PROGRAMFILES%\IST\log-files\Actions.txt'; if(Test-Path $path){ if((Get-Item $path).Length -gt 500KB){ Clear-Content $path } }"
+)
+
+
+:: Check the first thing the user typed (%1)
+
+:: Checks the internet
+IF "%1"=="-check-network"            GOTO NETWORK
+:: Shows your IPv4 address
+IF "%1"=="-ip"                       GOTO IP
+:: Show the DNS of a domain
+IF "%1"=="-dns"                      GOTO DNS
+:: Pings server chosen
+IF "%1"=="-ping"                     GOTO PING
+:: Clears the cache for the DNS on your computer to maybe fix your network issues
+IF "%1"=="-flushdns"                 GOTO FLUSH
+:: Shows information about internet in general on your device
+IF "%1"=="-info"                     GOTO INFO
+:: Shows the mac address
+IF "%1"=="-mac"                      GOTO MAC
+:: What is the set name to make the network recognize this device
+IF "%1"=="-hostname"                 GOTO HOSTNAME
+:: Shows how long the network card was turned on
+IF "%1"=="-listend-ports"            GOTO LISPORT
+:: Shows what apps use the internet right now
+IF "%1"=="-apps"                     GOTO APPS
+:: Shows you a refreshing view, of how much data is being sent and received every 3 seconds
+IF "%1"=="-monitor"                  GOTO MONITOR
+:: Maximum reachable speed
+IF "%1"=="-max-speed"                GOTO MAXSPEED
+:: Show every connected network on the windows device
+IF "%1"=="-list-connected-nets"      GOTO LCN
+:: Shows WiFi Password
+IF "%1"=="-list-pass"                GOTO PASS
+:: Shows WiFi Info of a specified WiFi network
+IF "%1"=="-list-wifi-info"           GOTO LWINFO
+:: Shows what other IPs/URLs a website needs before you can use it
+IF "%1"=="-trace"                    GOTO TRACE
+:: Shows Currently active IPs
+IF "%1"=="-active-ips"               GOTO ACTIVE
+:: Shows DNS cache that built up by the internet
+IF "%1"=="-dns-cache-history"        GOTO HISTORY
+:: Installes Drivers
+IF "%1"=="-install-drivers"          GOTO DRIVERS
+:: Lists how many bytes were Recieved and Sent
+IF "%1"=="-usage"                    GOTO USAGE
+:: Shows Status for every network adapter
+IF "%1"=="-adapter-status"           GOTO ADAPTERSTATUS
+:: Shows the Gateway of your Internet Connection
+IF "%1"=="-gateway"                  GOTO GATE
+:: Initial Setup wizard
+if /i "%~1"=="--install" (
+    :: 1. Check if already installed
+    if exist "%PROGRAMFILES%\IST\IST.bat" (
+        echo ERROR: IST is already installed.
+        echo Use '-uninstall' to remove.
+        echo ERROR-CODE: 0x1
+        GOTO :EOF
+    )
+
+    :: 2. Check for Admin Rights (Crucial for C:\Program Files)
+    net session >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo ERROR: Installation requires Administrator privileges.
+        echo Please right-click and 'Run as Administrator'.
+        echo ERROR-CODE 0x2
+        GOTO :EOF
+    )
+
+    :: 3. If both checks pass, proceed to the actual install logic
+    GOTO :SETUP
+)
+
+:: Changes to the wanted DNS
+IF "%1"=="-set-dns"                  GOTO SETDNS
+:: Shows all Log Files
+IF "%1"=="-show-log"                 GOTO LOG
+:: shows if IST hasw updates
+IF "%1"=="--update"                  GOTO UPDATE
+:: Optimizes the windows device
+IF "%1"=="-optimize"                 GOTO OPTIMIZE
+:: Shows the Type of IST you are using (portable or installed)
+IF "%1"=="-type"                     GOTO TYPE
+:: Exports all Logs to the Desktop
+IF "%1"=="-export-log"               GOTO EXPORTLOG
+:: Restarts the Terminal
+IF "%1"=="-restart"                  GOTO RESTART
+:: Reinstalls IST
+if /i "%~1"=="--reinstall" (
+    :: 1. Check if it's even installed
+    if not exist "%PROGRAMFILES%\IST\IST.bat" (
+        echo ERROR: IST is not installed in Program Files.
+        echo There is nothing to reinstall.
+        echo ERROR-CODE: 0x01
+        GOTO :EOF
+    )
+
+    :: 2. Check for Admin (Crucial for deleting from C:\Program Files)
+    net session >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo ERROR: Reinstallation REQUIRES Administrator privileges.
+        echo ERROR-CODE: 0x2
+        GOTO :EOF
+    )
+
+    :: 3. If it exists and we have power, go to the logic
+    GOTO :REINSTALL
+)
+
+:: See The time, when IST was installed as local program
+IF "%1"=="-installed-time"           GOTO INTTIME
+:: Is the Internet Working?
+IF "%1"=="-check-use"                GOTO CHECKUSE
+:: Shows Connection Type
+IF "%1"=="-connection"               GOTO CONNECTION
+:: Lists All Logs to IST
+IF "%1"=="-show-log-amount"          GOTO LOGAM
+:: Shows What is new to IST
+IF "%1"=="--whats-new"               GOTO WN
+:: Shows Information of a given Error Code
+IF "%1"=="--error-codes"             GOTO EC
+:: TUI
+IF "%1"=="--tui"                     GOTO CHECK_INTEGRITY
+:: Checks the Proxy
+IF "%1"=="-check-proxy"              GOTO CHECKPROXY
+:: Coverty Bits to Bytes
+IF "%1"=="-convert-bits"             GOTO CONVERTBYTES
+:: Exports the Configs
+IF "%1"=="-export-configs"           GOTO EXPORTCONFS
+
+:: Others
+:: Help centre
+IF "%1"==""                          GOTO USE
+:: Also help centre
+IF "%1"=="--help"                    GOTO HELP
+:: Shows version
+IF "%1"=="--version"                 GOTO VERSION
+:: ???
+IF "%1"=="--123456789-123456789"     GOTO 123456789-123456789
+
+:: DEAD ZONE
+:: Makes a new IP address
+IF "%1"=="--DeadZone-renew"          GOTO DEADRENEW
+:: Removes The IST network configuration driver
+IF "%1"=="--DeadZone-remove-driver"  GOTO DEADRMDRIVER
+:: Resets WinSock (WARNING: it is not a sock)
+IF "%1"=="--DeadZone-rmwinsock"      GOTO DEADRMSOCK
+:: Makes a new IP address
+IF "%1"=="--DeadZone-reset-firewall" GOTO DEADFIRE
+:: Removes The IST network configuration driver
+IF "%1"=="--DeadZone-ipv6-off"       GOTO DEADIPV6
+:: Resets WinSock (WARNING: it is not a sock)
+IF "%1"=="--DeadZone-set-dns"        GOTO DEADDNS
+:: Uninstalls IST
+if /i "%~1"=="--DeadZone-uninstall" (
+    :: 1. Check if it's even installed
+    if not exist "%PROGRAMFILES%\IST\IST.bat" (
+        echo ERROR: IST is not installed in Program Files.
+        echo There is nothing to uninstall.
+        echo ERROR-CODE: 0x001
+        GOTO :EOF
+    )
+
+    :: 2. Check for Admin (Crucial for deleting from C:\Program Files)
+    net session >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo ERROR: Uninstallation requires Administrator privileges.
+        echo ERROR-CODE: 0x2
+        GOTO :EOF
+    )
+
+    :: 3. If it exists and we have power, go to the logic
+    GOTO :DEADUNINSTALL
+)
+:: Resets ARP
+IF "%1"=="--deadzone-reset-arp"      GOTO DEADRSARP
+:: Goes to the DeadZone Version of TUI
+IF "%1"=="--deadzone-tui"            GOTO TUI-DEAD
+
+
+
+:: For everything else, that is not recognized
+IF NOT "%1"==""                      GOTO USE
+
+:NETWORK
+:: 1. Fast check: See if the command even exists
+where speedtest >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Speedtest CLI not detected. Auto-installing Network Configuration driver...
+    echo ERROR-CODE: 0x908
+
+    :: 2. The install (only happens if 'where' fails)
+    winget install --id Ookla.Speedtest.CLI -e --silent --accept-source-agreements --accept-package-agreements >nul 2>&1
+
+    :: 3. Refresh the path so the script can see the new .exe immediately
+    refreshenv >nul 2>&1 || set "PATH=%PATH%;%LOCALAPPDATA%\Microsoft\WinGet\Packages\Ookla.Speedtest.CLI_Microsoft.Winget.Source_8wekyb3d8bbwe"
+)
+
+:: If 'where' succeeded (errorlevel 0), it skips straight to here!
+echo Running Speed Test...
+speedtest --accept-license --accept-gdpr
+GOTO :EOF
+
+:IP
+:: This shows your local and public IP info
+echo Your Local IP Information:
+ipconfig | findstr "IPv4"
+echo.
+echo Your Public IP:
+
+powershell -command "(Invoke-RestMethod -Uri 'https://api.ipify.org')"
+GOTO :EOF
+
+:DNS
+if "%2"=="" (echo Please specify a domain ^(e.g., ist -dns google.com^) & exit /b)
+echo Resolving IPs for %2...
+nslookup %2 | findstr /i "address"
+GOTO :EOF
+
+:PING
+:: 1. Ask who to ping
+set "target="
+set /p "target=Ping who? (Leave blank for google.com): "
+if "%target%"=="" set "target=google.com"
+
+:: 2. Ask if it should be continuous
+set "ptype="
+set /p "ptype=do you want to ping %target% continuously? (y/n)
+
+echo.
+if /i "%ptype%"=="y" (
+    echo Pinging %target% continuously... Press CTRL+C to stop
+    ping %target% -t
+) else (
+    echo Pinging %target%...
+    ping %target%
+)
+GOTO :EOF
+
+:FLUSH
+echo Flushing DNS cache...
+ipconfig /flushdns
+GOTO :EOF
+
+:INFO
+echo Getting info...
+getmac /v
+GOTO :EOF
+
+:MAC
+echo Getting MAC address...
+getmac
+GOTO :EOF
+
+:HOSTNAME
+echo Showing the name of the windows device...
+hostname
+GOTO :EOF
+
+:LISPORT
+echo Finding Listening ports...
+netstat -an | findstr "LISTENING"
+GOTO :EOF
+
+:APPS
+:: 1. Check for Admin rights
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: '-apps' requires Administrator permission. Please try again
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+:: 2. If Admin, run the command
+echo Listing apps using the internet...
+echo (This may take a few seconds)
+netstat -b
+GOTO :EOF
+
+:MONITOR
+echo To cancel, click CTRL + C
+netstat -s 5
+GOTO :EOF
+
+:MAXSPEED
+:: Detect the parent process
+set "shell=cmd"
+:: Note: %PPID% isn't a standard CMD variable, but your tasklist check works well
+tasklist /fi "pid eq %PPID%" 2>nul | findstr /i "pwsh powershell" >nul && set "shell=powershell"
+
+if "%shell%"=="powershell" (
+    echo Running command...
+    :: We escape the parentheses so CMD doesn't close the IF block early
+    ^(Get-NetAdapter^).LinkSpeed
+) else (
+    echo Running command...
+    powershell -command ^(Get-NetAdapter^).LinkSpeed"
+)
+GOTO :EOF
+
+:LCN
+echo Showing connected networks...
+netsh wlan show profiles
+GOTO :EOF
+
+:PASS
+if "%~2"=="" (
+    echo Error: Please provide a network name.
+    echo Usage: ist -wifi-pass "Network Name" (if the name has spaces, put in quotes)
+    echo ERROR-CODE: 0x102
+)
+
+echo Searching for password...
+:: We use /I to ignore case and look for "Key"
+netsh wlan show profile name="%~2" key=clear
+GOTO :EOF
+
+:LWINFO
+if "%~2"=="" (
+    echo Error: Please provide a network name.
+    echo Usage: ist -wifi-pass "Network Name" (if the name has spaces, put in quotes)
+    echo ERROR-CODE: 0x102
+)
+
+netsh wlan show profile name="%~2" key=clear
+GOTO :EOF
+
+:TRACE
+:: 1. Check if the second argument is empty
+if "%~2"=="" (
+    echo Error: No target provided.
+    echo Usage: ist -trace [url/IP]
+    echo ERROR-CODE: 0x102
+    GOTO :EOF
+)
+
+echo Tracing route to %~2...
+echo [TIP] Press Ctrl+C to cancel if it takes too long.
+echo.
+
+:: 2. Use -d to prevent it from hanging on IP resolution
+:: and -h 10 to limit the search so it doesn't loop forever
+tracert -d -h 15 %~2
+
+if %errorlevel% neq 0 (
+    echo.
+    echo Trace failed. Check your internet or the URL spelling.
+    echo ERROR-CODE: 0x102
+)
+GOTO :EOF
+
+:ACTIVE
+netstat -n | findstr "ESTABLISHED"
+GOTO :EOF
+
+:HISTORY
+ipconfig /displaydns | findstr "Record Name"
+GOTO :EOF
+
+:DRIVERS
+echo.
+:: Fixed title syntax (no = needed)
+title IST %version% - Drivers Installer
+echo 1. Speedtest CLI (ist -check-network)
+echo.
+set /p "choice=Select drivers (A for All, Q to quit): "
+
+if /i "%choice%"=="q" GOTO :EOF
+
+:: 1. Show the "Starting" message first
+echo.
+echo Starting installation...
+
+:: 2. Logic for the 'A' or '1' selection
+if "%choice%"=="1" (
+    :: Run the spinner for a few seconds so they see it, then install
+    powershell -NoProfile -Command "$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rInstalling Speedtest CLI... $c\"); Start-Sleep -m 100 } }"
+    winget install --id Ookla.Speedtest.CLI -e --silent --accept-source-agreements --accept-package-agreements
+)
+
+if /i "%choice%"=="A" (
+    echo Installing All Drivers...
+    :: We use a loop to install everything in the list
+    for %%g in (Ookla.Speedtest.CLI) do (
+        echo | set /p ="Installing %%g... "
+        winget install --id %%g -e --silent --accept-source-agreements --accept-package-agreements >nul 2>&1
+        echo [ OK ] Installed
+    )
+)
+
+echo.
+echo [ OK ] Task finished.
+GOTO :EOF
+
+:USAGE
+echo Gathering Info...
+netstat -e
+GOTO :EOF
+
+:ADAPTERSTATUS
+echo Listing Status...
+netsh int show interface
+GOTO :EOF
+
+:GATE
+echo Showing...
+ipconfig | findstr "Gateway"
+GOTO :EOF
+
+:SETUP
+set "STtitle=IST: Internet Servicing Tool Full Setup wizard"
+echo !line!
+echo !spaces!!STtitle!
+echo !line!
+
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Setting IST fully up, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo Starting Full Setup...
+
+:: 1/5, ProgramFiles Add
+echo [1/5] Installing IST as Local Program...
+mkdir "%PROGRAMFILES%\IST"
+mkdir "%PROGRAMFILES%\IST\log-files"
+mkdir "%PROGRAMFILES%\IST\external-scripts"
+:: Log Data [1/5]
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist\log-files" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist\external-scripts" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [ OK ] Made Installation folders and files
+
+:: 2/5, Drivers
+echo [2/5] Installing Drivers (Auto-selecting 'A')...
+:: Use 'echo a |' to feed the input into the call
+echo a | call "%~f0" -install-drivers >nul
+:: Log Data [2/10]
+echo [%date% %time%] Installed Drivers >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+:: 3/5, setting IST as PATH
+echo [3/5] Setting IST to systems PATH...
+powershell -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';%PROGRAMFILES%\IST', 'Machine')"
+echo [ OK ] Set IST in Systems PATH.
+
+:: 4/5, Flushing DNS, thus uptimizing the system
+echo [4/5] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [%date% %time%] Flushed the DNS >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+
+:: 5/5, Moving IST
+echo [5/5] Moving IST to ProgramFiles...
+echo [ NOTICE ] while IST is moving, IST cannot do other commmands at the same time while moving
+copy /y "%~f0" "%PROGRAMFILES%\IST\IST.bat" >nul
+echo Installation Complete!
+start "" "%PROGRAMFILES%\IST\IST.bat"
+echo [%date% %time%] Moved IST into "%PROGRAMFILES%\IST" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+:: Finishing
+echo Finishing Installation...
+echo Installation Finished.
+
+echo Restarting the Terminal
+call "%~f0" -restart >nul
+GOTO :EOF
+
+:SETDNS
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Setting a custom DNS, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo presets:
+echo ist -set-dns gaming
+echo ist -set-dns stability
+echo ist -set-dns google
+echo ist -set-dns cloudflare
+echo ist -set-dns security
+echo ist -set-dns ad-protection
+
+:: 1. Define the Presets (The "Database")
+set "gaming=1.0.0.1"
+set "stability=8.8.4.4"
+set "google=8.8.8.8"
+set "cloudflare=1.1.1.1"
+set "security=9.9.9.9"
+set "ad-protection=94.140.14.14"
+
+:: 2. The Bridge: Point %primary% to the chosen preset
+:: This uses 'indirect expansion' to grab the value of whatever the user typed
+set "primary=!%~2!"
+
+:: 3. Validation: Make sure the user didn't type a fake preset
+if "%primary%"=="" (
+    echo ERROR: '%~2' is not a valid preset.
+    echo Use: gaming, stability, google, cloudflare, etc.
+    echo ERROR-CODE: 0x102
+    GOTO :EOF
+)
+
+:: 4. The Action
+echo Applying %~2 DNS (%primary%)...
+netsh interface ip set dns name="%adapter%" source=static address=%primary%
+ipconfig /flushdns >nul
+echo [ OK ] DNS updated successfully.
+GOTO :EOF
+
+:LOG
+type "%ISTPGF%\log-files\Installation-log.txt"
+GOTO :EOF
+
+:UPDATE
+:: [Version fetching logic stays the same]
+
+if "%version%"=="%latest_version%" (
+    echo [ OK ] You are up to date.
+) else (
+    echo Update available! - %latest_version%
+    echo Downloading...
+
+    :: Use clean variables without extra quotes
+    set "zipURL=https://github.com/Stefi9/IST/releases/latest/download/IST.zip"
+    set "destination=%USERPROFILE%\Downloads\update.zip"
+
+    :: Fix: PowerShell now uses the CORRECT variable name ($destination)
+    powershell -Command "Invoke-WebRequest -Uri '%zipURL%' -OutFile '%destination%'"
+
+    echo Extracting...
+    if not exist "%PROGRAMFILES%\IST" mkdir "%PROGRAMFILES%\IST"
+    if not exist "%PROGRAMFILES%\IST\log-files" mkdir "%PROGRAMFILES%\IST\log-files"
+
+    :: Fix: Changed %zipPath% to %destination% so PowerShell can find the file
+    powershell -Command "Expand-Archive -Path '%destination%' -DestinationPath '%PROGRAMFILES%\IST' -Force"
+
+    echo [ OK ] IST has been updated to %latest_version%.
+)
+GOTO :EOF
+
+:OPTIMIZE
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Optimizing (fully), REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo.
+ipconfig /flushdns >nul
+echo [%date% %time%] Flushed DNS >> "%PROGRAMFILES%\IST\log-files\Optimization-log.txt"
+netsh int ipv6 set teredo disabled
+echo [%date% %time%] Disabled IPv6 >> "%PROGRAMFILES%\IST\log-files\Optimization-log.txt"
+netsh int ip set dns "Wi-Fi" static 8.8.8.8
+echo [%date% %time%] Set DNS to Google's DNS >> "%PROGRAMFILES%\IST\log-files\Optimization-log.txt"
+echo [ OK ] Device was Optmized successfully.
+GOTO :EOF
+
+:TYPE
+echo Your IST version is %type%
+GOTO :EOF
+
+:EXPORTLOG
+copy "%PROGRAMFILES%\IST\log-files" "%USERPROFILE%\Desktop\"
+GOTO :EOF
+
+:RESTART
+start cmd.exe
+exit
+
+:REINSTALL
+set "RTtitle=IST: Internet Servicing Tool Reinstallation"
+echo !line!
+echo !spaces!!RTtitle!
+echo !line!
+
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Reinstalling IST, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+:: 1. Check if we are currently running from the folder we want to delete
+if /i "%~dp0"=="%PROGRAMFILES%\IST\" (
+    :: Copy the script to the Windows Temp folder
+    copy /y "%~f0" "%temp%\IST_Updater.bat" >nul
+
+    :: Run the copy from the Temp folder and tell it to skip back to the reinstall logic
+    start "" "%temp%\IST_Updater.bat" --123456789-123456789
+
+    :: Close this version immediately so the folder is no longer "in use"
+    exit /b
+)
+
+:123456789-123456789
+echo Now running from safe zone. Deleting old files...
+
+:: 1/4, Keeping IST in Downloads as Portable Program
+echo [1/4] Keeping IST in Downloads as a Portable Program...
+copy /y "%~f0" "%USERPROFILE%\Downloads\IST_Portable.bat"
+echo [ OK ] moved IST in downloads as a Portable Program
+
+:: 2/5, Removing Files
+echo [2/4] Removing Files...
+rd /s /q "%PROGRAMFILES%\IST"
+echo [ OK ] Removed Files.
+
+:: 3/4, removing IST from PATH
+echo [3/4] Remowing IST from PATH...
+powershell -Command "$p=[Environment]::GetEnvironmentVariable('Path','Machine'); $p=$p -replace ';%PROGRAMFILES:\=\\%\\IST',''; [Environment]::SetEnvironmentVariable('Path',$p,'Machine')"
+
+:: 4/4, Flushing DNS, thus uptimizing the system
+echo [4/4] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [ OK ] Flushing DNS finished.
+
+:: Finishing
+echo Finishing Uninstallation...
+echo Uninstallation Finished.
+
+:: 1/5, ProgramFiles Add
+echo [1/5] Installing IST as Local Program...
+mkdir "%PROGRAMFILES%\IST"
+mkdir "%PROGRAMFILES%\IST\log-files"
+mkdir "%PROGRAMFILES%\IST\external-scripts"
+:: Log Data [1/5]
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist\log-files" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist\external-scripts" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [ OK ] Made Installation folders and files
+
+:: 2/5, Drivers
+echo [2/5] Installing Drivers (Auto-selecting 'A')...
+:: Use 'echo a |' to feed the input into the call
+echo a | call "%~f0" -install-drivers >nul
+:: Log Data [2/10]
+echo [%date% %time%] Installed Drivers >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+:: 3/5, setting IST as PATH
+echo [3/5] Setting IST to systems PATH...
+powershell -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';%PROGRAMFILES%\IST', 'Machine')"
+echo [ OK ] Set IST in Systems PATH.
+
+:: 4/5, Flushing DNS, thus uptimizing the system
+echo [4/5] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [%date% %time%] Flushed the DNS >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+
+:: 5/5, Moving IST
+echo [5/5] Moving IST to ProgramFiles...
+echo [ NOTICE ] while IST is moving, IST cannot do other commmands at the same time while moving
+copy /y "%~f0" "%PROGRAMFILES%\IST\IST.bat" >nul
+echo Installation Complete!
+start "" "%PROGRAMFILES%\IST\IST.bat"
+echo [%date% %time%] Moved IST into "%PROGRAMFILES%\IST" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+:: Finishing
+echo Finishing Installation...
+echo Installation Finished.
+
+echo Restarting the Terminal
+call "%~f0" -restart >nul
+GOTO :EOF
+
+:INTTIME
+    :: We look for the folder 'IST' specifically and skip the 'Directory of' headers
+    for /f "tokens=1,2" %%a in ('dir "C:\Program Files" /ad /tc ^| findstr /c:" IST"') do (
+        echo IST %version% was first installed on: %%a at %%b
+    )
+GOTO :EOF
+
+:CHECKUSE
+    echo Testing Connectivity...
+    ping -n 1 1.1.1.1 >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo [ OK ] Internet is REACHABLE.
+    ) else (
+        echo [ FAIL ] Internet is Down, strictly firewalled or Your Internet is not working.
+        echo ERROR-CODE: 0x5
+    )
+GOTO :EOF
+
+:CONNECTION
+    echo Detecting active hardware...
+    netsh interface show interface | findstr /i "Connected" | findstr /i "Wi-Fi" >nul && (
+        echo Type: Wireless (Wi-Fi^) detected.
+    ) || (
+        netsh interface show interface | findstr /i "Connected" | findstr /i "Ethernet" >nul && (
+            echo Type: Wired (Ethernet^) detected.
+        ) || (
+            echo Type: IST could not verify the Connection Type.
+        )
+    )
+GOTO :EOF
+
+:LOGAM
+echo List of Log Files:
+echo.
+powershell Get-Childitem -Name "%ISTPGF%\Log-files"
+GOTO :EOF
+
+:EC
+
+if "%ADMIN_STATUS%"=="0" (
+    echo ERROR: Showing the error Codes, REQUIRES Administrator Permissions.
+    echo ERROR-CODE: 0x2
+)
+
+if "%ADMIN_STATUS%"=="1" (
+
+    if not exist "%PROGRAMFILES%\IST\external-scripts" (
+        if "%type%"=="install" (
+            mkdir "%PROGRAMFILES%\IST\external-scripts"
+            set "ES=%PROGRAMFILES%\IST\external-scripts"
+        )
+    )
+
+    for /f "tokens=3" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Personal') do set "DOCS_PATH=%%a"
+    for /f "delims=" %%i in ('echo %DOCS_PATH%') do set "FINAL_DOCS=%%i"
+
+    if /i not "%type%"=="install" (
+        set "ES=!FINAL_DOCS!"
+    )
+    echo.
+    echo List of Error Codes:
+    echo 0x1
+    echo 0x01
+    echo 0x001
+    echo 0x2
+    echo 0x5
+    echo 0x32
+    echo 0x102
+    echo 0x406
+    echo.
+    set /p "search_code=Enter Error Code (exsample, 0x2): "
+
+
+
+
+    if not exist "!ES!\errors.db" (
+    type nul > "!ES!\errors.db"
+    echo 0x1^|IST has been already Installed on the system >> "!ES!\errors.db"
+    echo 0x01^|IST is not Installed, so you cannot ReInstall IST >> "!ES!\errors.db"
+    echo 0x001^|IST is not Installed, so you cannot UnInstall IST >> "!ES!\errors.db"
+    echo 0x2^|The User does not run the command as Administrator >> "!ES!\errors.db"
+    echo 0x5^|The User is not connected to the Internet or has a strict FireWall >> "!ES!\errors.db"
+    echo 0x32^|IST cannot Run on 32-bit, because it is built on 64-bit architecture >> "!ES!\errors.db"
+    echo 0x102^|The User did not write the right thing on execution >> "!ES!\errors.db"
+    echo 0x908^|IST could not find what the user requested >> "!ES!\errors.db"
+    echo 0x406^|IST could not do the function specified >> "!ES!\errors.db"
+    )
+
+    :: Use !search_code! here because we are inside an IF block
+for /f "tokens=1,2 delims=|" %%a in ('findstr /i /c:"!search_code!" "!ES!\errors.db"') do (
+    set "found_code=%%a"
+    set "found_desc=%%b"
+)
+
+if defined found_code (
+    echo Code: !found_code!
+    echo Description: !found_desc!
+) else (
+    :: Change %search_code% to !search_code! here too
+    echo ERROR: Error code "!search_code!" not found in database.
+    echo ERROR-CODE: 0x908
+)
+
+)
+GOTO :EOF
+
+:CHECK_INTEGRITY
+:: Only run this if IST is actually installed
+if "%type%"=="install" (
+    if not exist "%PROGRAMFILES%\IST\log-files" mkdir "%PROGRAMFILES%\IST\log-files"
+    if not exist "%PROGRAMFILES%\IST\external-scripts" mkdir "%PROGRAMFILES%\IST\external-scripts"
+)
+:: Now it's safe to open the TUI
+GOTO :TUI
+
+:TUI
+set "TUITitle=IST - Internet Servicing Tool TUI Mode"
+set "mode=tui"
+
+for /f "tokens=2 delims=:" %%a in ('mode con ^| findstr "Columns"') do set /a "width=%%a"
+for /f "tokens=2 delims=:" %%a in ('mode con ^| findstr "Lines"') do set /a "height=%%a"
+
+:: Set your requirements
+set "minWidth=120"
+set "minHeight=30"
+
+echo Current size: %width% x %height%
+
+:: Check dimensions
+if %width% LSS %minWidth% GOTO :TUI-SMALL
+if %height% LSS %minHeight% GOTO :TUI-SMALL
+
+cls
+echo !line!
+echo !spaces!!TUITitle!
+echo !line!
+echo    [1] - Check Networking                                               [26] - Optimizes the Computer
+echo    [2] - Shows IP                                                       [27] - Shows the IST Type
+echo    [3] - Shows the DNS of the User selected URL                         [28] - Exports The Log to the Desktop
+echo    [4] - Pings the Server Chosen                                        [29] - Restarts the Terminal
+echo    [5] - Flushes the DNS                                                [30] - Reinstalls IST
+echo    [6] - Shows Network Information                                      [31] - Shows the time IST was installed
+echo    [7] - Shows MAC Address                                              [32] - Is The Internet Working?
+echo    [8] - Shows The Device's Hostname                                    [33] - Shows Connection Type
+echo    [9] - Shows Currently Listend Ports                                  [34] - Shows Log Amount
+echo   [10] - Shows Apps That Are Currently Connected To The Internet        [35] - What Is New in IST
+echo   [11] - Refreshes data every 5 seconds                                 [36] - Shows Error Codes
+echo   [12] - Shows Maximum network card speed                               [37] - Checks The Proxy
+echo   [13] - List All Connected Networks                                    [38] - Converts Bits to Bytes
+echo   [14] - Shows Password for the Selected Network                        [39] - Exports Windows Network Tools Configs
+echo   [15] - List info About WiFi                                           [40] - TUI Mode
+echo   [16] - Lists external site dependencies                               [41] - Shows Amount of IST Commands
+echo   [17] - Shows DNS Cache History                                        [42] - Shows The newly added Commands
+echo   [18] - Installs Drivers                                               [43] - TUI DeadZone
+echo   [19] - Shows the Usage
+echo   [20] - Shows Network Adapter Status
+echo   [21] - Shows the Gateway
+echo   [22] - Installs IST as Local Program
+echo   [23] - Sets the DNS to what the User wants
+echo   [24] - Shows all logs
+echo   [25] - Updates IST
+
+set /p "choice=Select an option (1-43, q for exit): "
+
+:: Selection Logic
+if "%choice%"=="1"  cls && GOTO NETWORK
+if "%choice%"=="2"  cls && GOTO IP
+if "%choice%"=="3"  cls && GOTO DNS
+if "%choice%"=="4"  cls && GOTO PING
+if "%choice%"=="5"  cls && GOTO FLUSH
+if "%choice%"=="6"  cls && GOTO INFO
+if "%choice%"=="7"  cls && GOTO MAC
+if "%choice%"=="8"  cls && GOTO HOSTNAME
+if "%choice%"=="9"  cls && GOTO LISPORT
+if "%choice%"=="10" cls && GOTO APPS
+if "%choice%"=="11" cls && GOTO MONITOR
+if "%choice%"=="12" cls && GOTO MAXSPEED
+if "%choice%"=="13" cls && GOTO LCN
+if "%choice%"=="14" cls && GOTO PASS
+if "%choice%"=="15" cls && GOTO LWINFO
+if "%choice%"=="16" cls && GOTO TRACE
+if "%choice%"=="17" cls && GOTO HISTORY
+if "%choice%"=="18" cls && GOTO DRIVERS
+if "%choice%"=="19" cls && GOTO USAGE
+if "%choice%"=="20" cls && GOTO ADAPTERSTATUS
+if "%choice%"=="21" cls && GOTO GATE
+if "%choice%"=="22" cls && GOTO SETUP
+if "%choice%"=="23" cls && GOTO SETDNS
+if "%choice%"=="24" cls && GOTO LOG
+if "%choice%"=="25" cls && GOTO UPDATE
+if "%choice%"=="26" cls && GOTO OPTIMIZE
+if "%choice%"=="27" cls && GOTO TYPE
+if "%choice%"=="28" cls && GOTO EXPORTLOG
+if "%choice%"=="29" cls && GOTO RESTART
+if "%choice%"=="30" cls && GOTO REINSTALL
+if "%choice%"=="31" cls && GOTO INTTIME
+if "%choice%"=="32" cls && GOTO CHECKUSE
+if "%choice%"=="33" cls && GOTO CONNECTION
+if "%choice%"=="34" cls && GOTO LOGAM
+if "%choice%"=="35" cls && GOTO WN
+if "%choice%"=="36" cls && GOTO EC
+if "%choice%"=="37" cls && GOTO CHECKPROXY
+if "%choice%"=="38" cls && GOTO CONVERTBYTES
+if "%choice%"=="39" cls && GOTO EXPORTCONFS
+if "%choice%"=="40" cls && GOTO TUI
+if "%choice%"=="41" GOTO CC
+if "%choice%"=="42" GOTO NCC
+if "%choice%"=="43" GOTO TUI-DEAD
+if "%choice%"=="q"  cls && GOTO :EOF
+
+:CC
+echo The Total Amount of Commands in IST is !cmd_count!
+GOTO :EOF
+
+:NCC
+echo The Total Amount of New Commands in IST is !Ncmd_count!
+GOTO :EOF
+
+:TUI-DEAD
+if "%YOLO%"=="1" GOTO :TUI_DO
+cls
+:: Check for Admin rights
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Resetting Switching to DeadZone TUI Mode REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo You Are about to Enter DeadZone Mode inside the TUI Mode.
+echo This Allows you to run DeadZone Commands by pressing a button (also by pressing y after that).
+echo Just Exit DeadZone Mode in the TUI and nothing should happen.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, TUI Stays Normal.
+    timeout /t 3 /nobreak >nul
+    GOTO TUI
+)
+
+:TUI_DO
+set "TUIDEADTitle=IST: Internet Servicing Tool - TUI Mode (DEAD ZONE)"
+cls
+echo !line!
+echo !spaces!!TUIDEADTitle!
+echo !line!
+echo    [1] - Renews the IP Address                                 [5] - Turns IPv6 off
+echo    [2] - Removes the IST driver                                [6] - Sets the DNS to Google's
+echo    [3] - Does Sudo rm -rf WinSock (Resets it)                  [7] - Uninstalls IST
+echo    [4] - Resets The FireWall                                   [8] - Resets ARP
+set /p "choice=Select an option (1-8, q for exit): "
+if "%choice%"=="1"  cls && GOTO DEADRENEW
+if "%choice%"=="2"  cls && GOTO DEADRMDRIVER
+if "%choice%"=="3"  cls && GOTO DEADRMSOCK
+if "%choice%"=="4"  cls && GOTO DEADFIRE
+if "%choice%"=="5"  cls && GOTO DEADIPV6
+if "%choice%"=="6"  cls && GOTO DEADDNS
+if "%choice%"=="7"  cls && GOTO DEADUNINSTALL
+if "%choice%"=="8"  cls && GOTO DEADRSARP
+if "%choice%"=="q"  cls && GOTO TUI
+GOTO :EOF
+
+:TUI-SMALL
+cls
+echo !line!
+echo !spaces!!TUITitle!
+echo !line!
+echo ERROR: The Size of The Terminal does not Match the Minimum Size (120x30) TUI mode cannot be started
+echo ERROR-CODE: 0x406
+GOTO :EOF
+
+:CHECKPROXY
+echo Checking Proxy Status...
+for /f "tokens=3" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable 2^>nul') do set "proxy_val=%%a"
+
+if "%proxy_val%"=="0x0" (
+    echo The Proxy is Truned off.
+) else if "%proxy_val%"=="0x1" (
+    echo The Proxy is Turned on.
+) else (
+    echo IST Could not Detect, if the Proxy is off or on.
+)
+GOTO :EOF
+
+:CONVERTBYTES
+if "%~2"=="" echo Error: Provide a number (e.g., ist -convert-bits 100) & GOTO :EOF
+echo Calculating...
+powershell -Command "$mb = [math]::Round(%~2 / 8, 2); Write-Host '%~2 Megabits is approximately '$mb' Megabytes (MB/s)'"
+GOTO :EOF
+
+:EXPORTCONFS
+set "OUTFILE="%USERPROFILE%\Desktop\IST_Exported_Configs.txt"
+if exist "%PROGRAMFILES%\ist" (
+    set "OUTFILE=%PROGRAMFILES%\ist\external-scripts\IST_Exported_Configs.txt"
+)
+echo Generating Report...
+(
+    echo.
+    echo [ IP CONFIGURATION ]
+    ipconfig /all
+    echo.
+    echo [ INTERFACE STATS ]
+    netsh interface show interface
+    echo.
+    echo [ WIFI PROFILES ]
+    netsh wlan show profiles
+) > "%OUTFILE%"
+echo [ OK ] Exported to: %OUTFILE%
+GOTO :EOF
+
+:DEADRENEW
+if "%YOLO%"=="1" GOTO :RENEW_DO
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will temporarily disconnect you from the internet.
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, IP address stays intact.
+    GOTO :EOF
+)
+
+:RENEW_DO
+if exist "%PROGRAMFILES%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+echo.
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rResetting Ip Address... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+ipconfig /release >nul 2>&1
+echo [ OK ] Connection dropped.
+echo.
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rRequesting New IP Address... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+:: Note: Renew can take a moment, so we don't use >nul here
+:: so the user can see progress if it hangs.
+ipconfig /renew
+echo [ OK ] IP Address successfully renewed.
+GOTO :EOF
+
+:DEADRMDRIVER
+if "%YOLO%"=="1" GOTO :RMDRIVER_DO
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will remove all the network drivers for IST.
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, Network drivers remained intact.
+    GOTO :EOF
+)
+
+:RMDRIVER_DO
+if exist "%PROGRAMFILES%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+echo.
+:: 1. Run the spinner FIRST (or use a shorter loop) to show activity
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rUninstalling drivers... $c\"); Start-Sleep -m 100 } }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+
+:: 2. Now run the actual heavy lifting
+winget uninstall --id Ookla.Speedtest.CLI -e --silent >nul 2>&1
+
+echo.
+echo [ OK ] IST Network drivers have been removed.
+GOTO :EOF
+
+:DEADRMSOCK
+if "%YOLO%"=="1" GOTO :RMSOCK_DO
+:: Check for Admin rights
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Resetting WinSock REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will reset the Windows Sockets API to factory defaults.
+echo All active network connections will be terminated,
+echo and a full system restart is REQUIRED to restore internet functionality.
+echo Use this only if you can connect to a network but cannot load any data.
+echo.
+echo WinSock also is not a sock.
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, WinSock is untouched.
+    GOTO :EOF
+)
+
+:RMSOCK_DO
+if exist "%PROGRAMFILES%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rResetting WinSock... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+
+netsh winsock reset >nul
+echo [ OK ] WinSock has been reset.
+echo [ NOTICE ] Due to WinSock being reset, your computer needs to restart, to be able to use the Internet again.
+echo And We will restart for you (60 second timer)
+set /p "confirm=Are you sure you want restart automatically? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, Please Restart manually
+    GOTO :EOF
+)
+echo Please save any changes. you have 60 seconds.
+shutdown -r -t 60
+GOTO :EOF
+
+:DEADFIRE
+if "%YOLO%"=="1" GOTO :FIRE_DO
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will reset you FireWall Settings to factory defaults.
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, FireWall settings stay intact.
+    GOTO :EOF
+)
+
+:FIRE_DO
+if exist "%PROGRAMFILES%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rTurning IPv6 Off... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+
+netsh advfirewall reset
+
+echo [ OK ] Reset Complete.
+GOTO :EOF
+
+:DEADIPV6
+if "%YOLO%"=="1" GOTO :IPV6_DO
+:: Check for Admin rights
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Changing the the IPv6 Permissions REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This Will Turn Off IPv6.
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, DNS stays to what it stays.
+    GOTO :EOF
+)
+
+:IPV6_DO
+if exist "%PROGRAMFILES%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rTurning IPv6 Off... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+
+netsh int ipv6 set teredo disabled
+echo [ OK ] Execution finished
+GOTO :EOF
+
+:DEADDNS
+if "%YOLO%"=="1" GOTO :DNS_DO
+:: Check for Admin rights
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Changing the DNS REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This Will reset your DNS to googles DNS (8.8.8.8)
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, DNS stays to what it stayed.
+    GOTO :EOF
+)
+
+:DNS_DO
+if exist "%PROGRAMFILES%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rSetting DNS... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+:: Automatically find the active adapter name
+for /f "tokens=3*" %%i in ('netsh interface show interface ^| findstr /I "Connected"') do (
+    set "active_adapter=%%j"
+)
+
+:: Apply the DNS to the detected adapter
+if defined active_adapter (
+    echo [ OK ] Found active adapter: %active_adapter%
+    netsh interface ip set dns name="%active_adapter%" source=static address=8.8.8.8
+    netsh interface ip add dns name="%active_adapter%" addr=8.8.4.4 index=2
+) else (
+    echo ERROR: Could not detect an active network adapter.
+    echo ERROR-CODE: 0x5
+    GOTO :EOF
+)
+echo [ OK ] DNS set to 8.8.8.8
+GOTO :EOF
+
+:DEADUNINSTALL
+if "%YOLO%"=="1" GOTO :UNINSTALL_DO
+set "UTtitle=IST: Internet Servicing Tool Uninstallation"
+echo !line!
+echo !spaces!!UTtitle!
+echo !line!
+
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Uninstalling IST, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This Will Uninstall IST
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, IST stays Untouched.
+    GOTO :EOF
+)
+
+:UNINSTALL_DO
+:: 1. Check if we are in Program Files
+if /i "%~dp0"=="%PROGRAMFILES%\IST\" (
+    copy /y "%~f0" "%temp%\IST_Remover.bat" >nul
+    :: We use a simple, unique flag: --EXEC-UNINSTALL
+    start "" "%temp%\IST_Remover.bat" --EXEC-UNINSTALL
+    exit /b
+)
+
+:: 2. This MUST be at the very top of your script (after @echo off)
+:: It catches the "Stunt Double" when it re-launches from Temp
+IF /i "%~1"=="--EXEC-UNINSTALL" GOTO :PROCEED_UNINSTALL
+
+:PROCEED_UNINSTALL
+:: 1/4, Keeping IST in Downloads as Portable Program
+echo [1/4] Keeping IST in Downloads as a Portable Program...
+copy /y "%~f0" "%USERPROFILE%\Downloads\IST_Portable.bat"
+echo [ OK ] moved IST in downloads as a Portable Program
+
+:: 2/5, Removing Files
+echo [2/4] Removing Files...
+rd /s /q "%ISTPGF%"
+echo [ OK ] Removed Files.
+
+:: 3/4, removing IST from PATH
+echo [3/4] Remowing IST from PATH...
+powershell -Command "$p=[Environment]::GetEnvironmentVariable('Path','Machine'); $p=$p -replace ';%PROGRAMFILES:\=\\%\\IST',''; [Environment]::SetEnvironmentVariable('Path',$p,'Machine')"
+
+:: 4/4, Flushing DNS, thus uptimizing the system
+echo [4/4] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [ OK ] Flushing DNS finished.
+
+:: Finishing
+echo Finishing Uninstallation...
+echo Uninstallation Finished.
+GOTO :EOF
+
+:DEADRSARP
+if "%YOLO%"=="1" GOTO RSARP_DO
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Uninstalling IST, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo Reset ARP.
+:: Added a space after the prompt for better readability
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, ARP Stays untouched.
+    GOTO :EOF
+)
+
+:RSARP_DO
+if exist "%ISTPGF%\ist\log-files" (
+    echo [%date% %time%] Did A DeadZone Command >> "%PROGRAMFILES%\IST\log-files\Actions.txt"
+)
+set PS_COMMAND="$s='|','/','-','\'; for($i=0;$i -lt 20;$i++){ foreach($c in $s){ write-host -NoNewline (\"`rSetting DNS... $c\"); Start-Sleep -m 100 } }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command %PS_COMMAND%
+arp -d *
+GOTO :EOF
+
+
+
+:VERSION
+set "vertitle=IST: Internet Servicing Tool Version Manager"
+echo !line!
+echo !spaces!!vertitle!
+echo !line!
+
+:: Get OS Name and Build Version from Registry
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).Caption"`) do set "OS_NAME=%%a"
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).BuildNumber"`) do set "OS_BUILD=%%a"
+
+:: Versions
+echo IST - version %version%
+echo IST-Network-Configuration-Driver Version - %ISTNCDV%
+echo Type of installation - %type%
+echo Windows Version - %OS_NAME% (Build %OS_BUILD%)
+echo User Type %ADMIN_LABEL%
+GOTO :EOF
+
+:WN
+set "WNTitle=IST: Internet Servicing Tool - What is new?"
+set "NAC=Newly Added Commands"
+set "NACDEAD=Newly Added DEADZONE Commands"
+set "BUGF=Bug Fixes"
+echo !line!
+echo !spaces!!WNTitle!
+echo !line!
+echo.
+echo !line!
+echo !spaces!!NAC!
+echo !line!
+echo.
+echo In Update %version% we added %Ncmd_count% new Commands.
+echo All new Commands:
+echo.
+echo    ist -show-log-amount                 - Shows All Logs in IST
+echo    ist --whats-new                      - Shows Everything New to IST (like now Commands and more)
+echo    ist --error-codes                    - Shows Info about a given Error Code
+echo    ist --tui                            - Opens Up IST TUI mode (experiental)
+echo    ist -check-proxy                     - Checks The (well) Proxy
+echo    ist -convert-bits                    - Converts Bits to bytes
+echo    ist -export-configs                  - Exports the Configs for the Network Tools in Windows
+echo.
+echo !line!
+echo !spaces!!NACDEAD!
+echo !line!
+echo    ist --deadzone-reset-arp             - Resets ARP
+echo    ist --deadzone-tui                   - Launches the DeadZone TUI
+echo    ist --deadzone-[command] --yolo      - If you have --yolo, the DeadZone will be executed without a conformation screen
+echo.
+echo !spaces!!BUGF!
+echo !line!
+echo.
+echo In Update %version% we Fixed 3 Bug(s)
+echo !line!
+echo #2: if a command gets typed wrong, it removes my history
+echo Description: if i type in a command wrong (like "ist --install" instead of "ist -install") all my terminal history gets deleted
+echo !line!
+echo #3: If i uninstalll IST it will not keep the portable version in my Downloads
+echo Description: if in the uninstallation process IST says "it gets moved to the downloads folder as a portable program" then, it does not get moved.
+echo !line!
+echo #4: Uninstallation Process does not delete IST fully.
+echo Description: if you uninstall IST using ´--DeadZone-uninstall´ it will spt out the error "The batch file cannot be found."
+echo !line!
+echo.
+echo All Fixed Bugs:
+set "REPO=stefi9/IST"
+
+:: This PowerShell command fetches the last 5 closed issues and formats them
+powershell -NoProfile -Command ^
+    "Write-Host '!line!'; " ^
+    "$url = 'https://api.github.com/repos/%REPO%/issues?state=closed&per_page=5'; " ^
+    "$issues = Invoke-RestMethod -Uri $url -Headers @{'User-Agent'='IST-Updater'}; " ^
+    "if ($issues -eq $null -or $issues.Count -eq 0) { Write-Host 'No fixed bugs found.' } " ^
+    "else { foreach ($i in $issues) { " ^
+    "  Write-Host ('#' + $i.number + ': ' + $i.title); " ^
+    "  Write-Host ('Description: ' + $i.body); " ^
+    "  Write-Host '!line!'; " ^
+    "} }"
+
+echo.
+if %errorlevel% neq 0 (
+    echo ERROR: Could not connect to the bug tracker.
+    echo ERROR-CODE: 0x5
+)
+GOTO :EOF
+
+:HELP
+set "helptitle=IST: Internet Servicing Tool Help Centre"
+echo !line!
+echo !spaces!!helptitle!
+echo !line!
+
+:: Now just list the flags below
+echo    ist -check-network                  - Runs the speedtest script
+echo    ist -ip                             - Shows your IP addresses
+echo    ist -dns [user input]               - Shows the DNS of a URL
+echo    ist -ping                           - Pings the server chosen (if no server is chosen, google.com is set by default)
+echo    ist -flushdns                       - Evicts DNS Cache, may also help with internet issues
+echo    ist -info                           - Shows information about internet in general on your device
+echo    ist -mac                            - Shows MAC address
+echo    ist -hostname                       - Shows the device's name, the name that the router will recognize as the name of the device
+echo    ist -listend-ports                  - Shows the ports currently getting listend by programs
+echo    ist -apps                           - Lists all programs currently using the internet
+echo    ist -monitor                        - Shows you a refreshing view, of how much data is being sent and received every 5 seconds
+echo    ist -max-speed                      - Shows the maximum speed your network card can output
+echo    ist -list-connected-nets            - Shows every network ever connected to the windows device
+echo    ist -list-pass [user input]         - Shows WiFi Password
+echo    ist -list-wifi-info [user input]    - Shows WiFi Info of a specified WiFi network
+echo    ist -trace [user input]             - Shows what other IPs/URLs a website needs before you can use it
+echo    ist -active-ips                     - Shows Currently active IPs
+echo    ist -dns-cache-history              - Shows DNS cache that built up by the internet
+echo    ist -install-drivers [user input]   - Installs the selected IST drivers
+echo    ist -usage                          - Lists how many bytes were Recieved and Sent
+echo    ist -adapter-status                 - Lists the status of every network adapter
+echo    ist -gateway                        - Shows The Windows Device's Gateway
+echo    ist --install                       - Installs IST as a Local Program instead of a portable one
+echo    ist -set-dns [user input]           - Sets a custom DNS
+echo    ist -show-log                       - Shows all log files
+echo    ist --update                        - Shows if IST has updates available
+echo    ist -optimize                       - Optiizes The Computer (in terms of Networking)
+echo    ist -type                           - Shows what type of program IST iis (portable or installed)
+echo    ist -export-log                     - Exports every Log to the desktop
+echo    ist -restart                        - Restarts the Terminal
+echo    ist  --reinstall                    - Reinstalls IST into ProgramFiles
+echo    ist -installed-time                 - See The time, when IST was installed as local program
+echo    ist -check-use                      - Is the Internet even Working?
+echo    ist -connection                     - The Type of the current Internet connection IST can detect
+echo    ist --help                          - Shows the Help Centre (Current Menu)
+echo    ist --version                       - Shows the IST version and the IST-network-configuration-driver version
+
+
+echo Need more help? Go to https://github.com/Stefi9/IST/issues for more info.
+echo.
+
+:: Dead zone
+:: helptitle 2
+set "helptitle2=IST: Internet Servicing Tool DEAD ZONE"
+
+echo !line!
+echo !spaces!!helptitle2!
+echo !line!
+echo The following commands are dangerous to the windows device. May harm your device.
+echo proceed with caution.
+echo !line!
+echo    ist --deadzone-renew                - Makes a new IP address for your windows device
+echo    ist --deadzone-remove-driver        - Removes the Network Configuration drivers
+echo    ist --deadzone-rmwinsock            - Resets WinSock, may fix "connected, but no internet" issues
+echo    ist --deadzone-reset-firewall       - Resets the rules of the firewall (good if you made mistakes in it)
+echo    ist --deadzone-ipv6-off             - Turns off IPv6 IPs (recommended for older routers, that hate IPv6)
+echo    ist --deadzone-set-dns              - Sets the dns to googles DNS (good, if you mistakenly set a non-working DNS)
+echo    ist --deadzone-uninstall            - Uninstalls IST but downloads the Portable one back
+
+:: helptitle3
+set "helptitle3=IST: Internet Servicing Tool New Commands"
+:: Title DeadZone
+set "helptitledead=DEAD ZONE"
+
+echo !line!
+echo !spaces!!helptitle3!
+echo !line!
+echo    ist -show-log-amount                 - Shows All Logs in IST
+echo    ist --whats-new                      - Shows Everything New to IST (like now Commands and more)
+echo    ist --error-codes                    - Shows Info about a given Error Code
+echo    ist --tui                            - Opens Up IST TUI mode (experiental)
+echo    ist -check-proxy                     - Checks The Proxy
+echo    ist -convert-bits                    - Converts Bits to bytes
+echo    ist -export-configs                  - Exports the Configs for the Network Tools in Windows
+echo !line!
+echo !spaces!!helptitledead!
+echo !line!
+echo    ist --deadzone-reset-arp             - Resets ARP
+echo    ist --deadzone-tui                   - Launches the DeadZone TUI
+echo    ist --deadzone-[command] --yolo      - If you have --yolo, the DeadZone will be executed without a conformation screen
+echo.
+echo Amount of Commands in this IST installation: %cmd_count%
+echo Amount of Newly added Commands: %Ncmd_count%
+echo.
+echo IST has %line_count% lines of Code.
+
+GOTO :EOF
+
+:USE
+echo Command "%~1" Was not recognized as a command or external script for IST.
+echo Do "ist --help" for more information
+GOTO :EOF
