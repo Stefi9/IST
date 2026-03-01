@@ -1,4 +1,4 @@
-since IST is Free and Open-Source Software, Here is the IST Source Code:
+Since IST is Free and Open-Source Software, Here is the IST Source Code:
 
 @echo off
 SETLOCAL EnableDelayedExpansion
@@ -1555,4 +1555,5 @@ GOTO :EOF
 :USE
 echo Command "%~1" Was not recognized as a command or external script for IST.
 echo Do "ist --help" for more information
+
 GOTO :EOF
