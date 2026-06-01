@@ -1,0 +1,3108 @@
+@echo off
+
+:: 32-Bit platform detection
+if "%PROCESSOR_ARCHITECTURE%"=="x86" (
+    if defined PROCESSOR_ARCHITEW6432 (
+        echo SYSERROR: IST cannot run on the WoW64 ^(Windows 32-Bit for Windows 64-Bit^) plugin.
+        echo Please restart IST in normal mode.
+        echo ERROR-CODE: 0x32
+        pause
+        exit /b
+        GOTO :EOF
+    ) else (
+        echo SYSERROR: IST cannot run on a 32-Bit OS.
+        echo So, IST is not supported on your machine.
+        echo ERROR-CODE: 0x32
+        pause
+        exit /b
+        GOTO :EOF
+    )
+)
+
+:: No PowerShell detection
+where powershell >nul 2>&1
+if not "%errorlevel%"=="0" (
+    echo SYSERROR: PowerShell is required to run IST. Please install PowerShell and try again.
+    echo ERROR-CODE: 0x406
+    pause
+    exit /b
+    GOTO :EOF
+)
+
+:: Variables
+
+:: SETLOCAL
+SETLOCAL
+SETLOCAL EnableDelayedExpansion
+
+:: cmdCount
+set "cmdCount=0"
+for /f %%a in ('findstr /r /c:"IF .*==.*GOTO" "%~f0"') do set /a "cmdCount+=1"
+set /a "cmdCount=cmdCount-4"
+for /f %%a in ('findstr /c:":: NEW" "%~f0"') do set /a "nCmdCount+=1"
+set /a "nCmdCount=nCmdCount-1"
+
+:: Versions
+set "version=1.9"
+set "prvVersion=1.8"
+set "istncdVER=1.4"
+
+:: The directory of IST
+set "istDir=%~dp0"
+
+:: PATH block (for PATH users)
+where ist.bat >nul 2>&1
+if "%ERRORLEVEL%" EQU 0 (
+    FOR /F "tokens=*" %%i IN ('where ist.bat') DO SET istDir=%%i
+)
+
+:: The type of IST
+if exist "%PROGRAMFILES%\IST\IST.bat" (
+    set "type=install"
+    set "istPgf=%PROGRAMFILES%\IST"
+) else if exist "%LOCALAPPDATA%\IST\IST.bat" (
+    set "type=install"
+    set "istPgf=%LOCALAPPDATA%\IST"
+) else (
+    set "type=portable"
+    set "istPgf=%istDir%"
+)
+
+:: Administrator rights?
+net session >nul 2>&1
+if %errorLevel% == 0 (
+    set "admStat=1"
+    set "admLab=[ADMIN]"
+) else (
+    set "admStat=0"
+    set "admLab=[USER]"
+)
+
+
+:: Lines of Code (and previous)
+set "prvLineCount=2177"
+set "lineCount=0"
+for /f %%a in ('find /c /v "" ^< "%~f0"') do set "lineCount=%%a"
+
+:: Banner
+for /f "tokens=2 delims=:" %%a in ('mode con ^| findstr Columns') do set /a "cols=%%a-2"
+set "line="
+for /l %%i in (1,1,%cols%) do set "line=!line!="
+set /a "padding=(cols - 35) / 2"
+set "spaces="
+for /l %%i in (1,1,%padding%) do set "spaces=!spaces! "
+
+:: YOLO through DeadZone
+set "YOLO=0"
+if exist "%istPgf%\bin\yoloConf.ist" (
+    for /f "usebackq delims=" %%A in ("%istPgf%\bin\yoloConf.ist") do set "yoloMode=%%A"
+    if "!yoloMode!"=="YOLOAUTO" (
+        set "YOLO=1"
+    ) else if "!yoloMode!"=="YOLOFLAG" (
+        if "%~2"=="--yolo" set "YOLO=1"
+    ) else if "!yoloMode!"=="YOLONO" (
+        set "YOLO=0"
+    )
+)
+
+:: Log Maintenance: Prevent infinite growth
+if exist "%istPgf%\log-files" (
+    powershell -NoProfile -Command "$path='%istPgf%\log-files\Actions.txt'; if(Test-Path $path){ if((Get-Item $path).Length -gt 500KB){ Clear-Content $path } }"
+)
+
+:: Sad smiley
+set "sSM=:("
+
+
+:: Other startup tasks 
+
+:: Title Variable
+set "titVar=IST v%version% - %admLab% - %type% - IST directory: %istPgf%"
+:: Title
+title %titVar%
+
+:: Config Files
+    :: IP Address
+if exist "%istPgf%\bin\ipAddress.ist" (
+    set "savedIpAddress=Exists"
+    for /f "tokens=*" %%i in ('type "%istPgf%\bin\ipType.ist"') do set "ipType=%%i"
+    if "!ipType!"=="public" (
+        set "ipType=public"
+    )
+    if "!ipType!"=="private" (
+        set "ipType=private"
+    )
+) else (
+    set "savedIpAddress=0"
+)
+    :: Wi-Fi name
+if exist "%istPgf%\bin\wifiName.ist" (
+    set "savedWifiName=Exists"
+) else (
+    set "savedWifiName=0"
+)
+
+:: Configuration for theme loader
+if exist "%istPgf%\bin\themeManager.ist" (
+    for /f "tokens=*" %%i in ('type "%istPgf%\bin\themeManager.ist"') do set "themeCfg=%%i"
+    if "!themeCfg!"=="HackerMan " color 02
+    if "!themeCfg!"=="Ocean "     color 17
+    if "!themeCfg!"=="WinPWSH "   color 1F
+    if "!themeCfg!"=="Blood "     color 04
+    if "!themeCfg!"=="Winter "    color F0
+    if "!themeCfg!"=="Volcano "   color 4E
+    if "!themeCfg!"=="Ubuntu "    color 0D
+    if "!themeCfg!"=="WarnArea "  color 06
+    if "!themeCfg!"=="OLDmacOS "  color 8F
+    if "!themeCfg!"=="Default "   color 07
+)
+
+:: Admin restart behavior
+set "RADM=RADMNO"
+if exist "%istPgf%\bin\admRestartConf.ist" (
+    for /f "usebackq tokens=*" %%i in ("%istPgf%\bin\admRestartConf.ist") do set "RADM=%%i"
+)
+
+:: Integrity checker
+set "intOK=1"
+if not exist "%ISTPGF%\external-scripts" set "intOK=0"
+if not exist "%ISTPGF%\bin" set "intOK=0"
+if not exist "%ISTPGF%\log-files" set "intOK=0"
+if "%intOK%"=="0" GOTO INTUPD
+GOTO FLAGS
+GOTO :EOF
+
+:INTUPD
+echo The integrity of IST is not fully intact.
+echo Some features may not work correctly.
+if not "%admStat%"=="1" (
+    echo ERROR: Administrator rights are required to repair integrity.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+echo Repairing...
+if not exist "%ISTPGF%\external-scripts" mkdir "%ISTPGF%\external-scripts"
+if not exist "%ISTPGF%\bin" mkdir "%ISTPGF%\bin"
+if not exist "%ISTPGF%\log-files" mkdir "%ISTPGF%\log-files"
+echo [ OK ] Integrity restored.
+GOTO FLAGS
+GOTO :EOF
+
+
+:FLAGS
+:: Flags system 
+
+:: Checks the internet
+IF /i "%1"=="-check-network"            GOTO NETWORK
+:: Shows your IPv4 address
+IF /i "%1"=="-ip"                       GOTO IP
+:: Show the DNS of a domain
+IF /i "%1"=="-dns"                      GOTO DNS
+:: Pings server chosen
+IF /i "%1"=="-ping"                     GOTO PING
+:: Clears the cache for the DNS on your computer to maybe fix your network issues
+IF /i "%1"=="-flushdns"                 GOTO FLUSH
+:: Shows information about internet in general on your device
+IF /i "%1"=="-info"                     GOTO INFO
+:: Shows the mac address
+IF /i "%1"=="-mac"                      GOTO MAC
+:: What is the set name to make the network recognize this device
+IF /i "%1"=="-hostname"                 GOTO HOSTNAME
+:: Shows how long the network card was turned on
+IF /i "%1"=="-listend-ports"            GOTO LISPORT
+:: Shows what apps use the internet right now
+IF /i "%1"=="-apps"                     GOTO APPS 
+:: Shows you a refreshing view, of how much data is being sent and received every 3 seconds
+IF /i "%1"=="-monitor"                  GOTO MONITOR
+:: Maximum reachable speed
+IF /i "%1"=="-max-speed"                GOTO MAXSPEED
+:: Show every connected network on the windows device
+IF /i "%1"=="-list-connected-nets"      GOTO LCN
+:: Shows WiFi Password
+IF /i "%1"=="-list-pass"                GOTO PASS
+:: Shows WiFi Info of a specified WiFi network
+IF /i "%1"=="-list-wifi-info"           GOTO LWINFO
+:: Shows what other IPs/URLs a website needs before you can use it
+IF /i "%1"=="-trace"                    GOTO TRACE
+:: Shows Currently active IPs
+IF /i "%1"=="-active-ips"               GOTO ACTIVE
+:: Shows DNS cache that built up by the internet
+IF /i "%1"=="-dns-cache-history"        GOTO HISTORY
+:: Installes Drivers
+IF /i "%1"=="--install-drivers"         GOTO DRIVERS
+:: Lists how many bytes were Recieved and Sent
+IF /i "%1"=="-usage"                    GOTO USAGE
+:: Shows Status for every network adapter
+IF /i "%1"=="-adapter-status"           GOTO ADAPTERSTATUS
+:: Shows the Gateway of your Internet Connection
+IF /i "%1"=="-gateway"                  GOTO GATE
+:: Initial Setup wizard
+if /i "%~1"=="--install"                GOTO SETUP
+:: Changes to the wanted DNS
+IF /i "%1"=="-set-dns"                  GOTO SETDNS
+:: Shows all Log Files 
+IF /i "%1"=="-show-log"                 GOTO LOG
+:: shows if IST hasw updates
+IF /i "%1"=="--update"                  GOTO UPDATE
+:: Optimizes the windows device
+IF /i "%1"=="-optimize"                 GOTO OPTIMIZE
+:: Shows the Type of IST you are using (portable or installed)
+IF /i "%1"=="-type"                     GOTO TYPE
+:: Exports all Logs to the Desktop
+IF /i "%1"=="-export-log"               GOTO EXPORTLOG
+:: Restarts the Terminal
+IF /i "%1"=="-restart"                  GOTO RESTART
+:: Reinstalls IST
+IF /i "%1"=="--reinstall"               GOTO REINSTALL
+:: See The time, when IST was installed as local program
+IF /i "%1"=="-installed-time"           GOTO INTTIME
+:: Is the Internet Working?
+IF /i "%1"=="-check-use"                GOTO CHECKUSE
+:: Shows Connection Type
+IF /i "%1"=="-connection"               GOTO CONNECTION
+:: Lists All Logs to IST
+IF /i "%1"=="-show-log-amount"          GOTO LOGAM
+:: Shows What is new to IST
+IF /i "%1"=="--whats-new"               GOTO WN
+:: Shows Information of a given Error Code
+IF /i "%1"=="--error-codes"             GOTO EC
+:: TUI
+IF /i "%1"=="--tui"                     GOTO TUI
+:: Checks the Proxy
+IF /i "%1"=="-check-proxy"              GOTO CHECKPROXY
+:: Coverty Bits to Bytes
+IF /i "%1"=="-convert-bits"             GOTO CONVERTBYTES
+:: Exports the Configs
+IF /i "%1"=="-export-configs"           GOTO EXPORTCONFS
+:: Changes FireWall rules
+IF /i "%1"=="-set-firewall-rules"       GOTO SFIREWALLR
+:: Cleans the IST made log files
+IF /i "%1"=="-clean-logs"               GOTO CLEANLOGS
+:: Changes the terminal theme
+IF /i "%1"=="-theme"                    GOTO THEME
+:: Shows the VPN status
+IF /i "%1"=="-vpn-status"               GOTO VPNSTAT
+:: Shows tips about networking
+IF /i "%1"=="-networking-tips"          GOTO NETTIPS
+:: Shows the open ports
+IF /i "%1"=="-open-ports"               GOTO OPENPORT
+:: Shows information about your IP
+IF /i "%1"=="-ip-info"                  GOTO IPINFO
+:: Configures IST to your liking
+IF /i "%1"=="--configure"               GOTO CONFIGURATE
+:: Command Count
+IF /i "%1"=="--command-count"           GOTO CC
+:: New Commands Count
+IF /i "%1"=="--new-command-count"       GOTO NCC
+:: Lines of Code
+IF /i "%1"=="--line-count"              GOTO LINECOUNT :: NEW
+:: Shows the hosts file
+IF /i "%1"=="-hosts-view"               GOTO VIEWHOSTS :: NEW
+:: Shows if the selected port is open or not
+IF /i "%1"=="-check-port"               GOTO CHECKPORT :: NEW
+
+:: DEAD ZONE
+:: Makes a new IP address
+IF /i "%1"=="--DeadZone-renew"          GOTO DEADRENEW
+:: Removes The IST network configuration driver
+IF /i "%1"=="--DeadZone-remove-driver"  GOTO DEADRMDRIVER
+:: Resets WinSock (WARNING: it is not a sock)
+IF /i "%1"=="--DeadZone-rmwinsock"      GOTO DEADRMSOCK
+:: Makes a new IP address
+IF /i "%1"=="--DeadZone-reset-firewall" GOTO DEADFIRE
+:: Turns IPv6 off
+IF /i "%1"=="--DeadZone-ipv6-off"       GOTO DEADIPV6
+:: Resets WinSock (WARNING: it is not a sock)
+IF /i "%1"=="--DeadZone-set-dns"        GOTO DEADDNS
+:: Uninstalls IST
+if "%1"=="--deadzone-uninstall"         GOTO DEADUNINSTALL
+:: Resets ARP
+IF /i "%1"=="--deadzone-reset-arp"      GOTO DEADRSARP
+:: Goes to the DeadZone Version of TUI
+IF /i "%1"=="--deadzone-tui"            GOTO TUI-DEAD
+:: Renews the IP address and rm's WinSock (WARNING: it is not a sock)
+IF /i "%1"=="--deadzone-wipe-all"       GOTO DEADWIPEALL :: NEW
+:: changes the MAC address
+IF /i "%1"=="--deadzone-change-mac"     GOTO DEADRNDMAC :: NEW
+
+:: Internal commands
+IF "%1"=="--Reinstall-Script-Installer" GOTO 123456789-123456789
+IF /i "%~1"=="--Uninstall-Executer"     GOTO :PROCEED_UNINSTALL
+IF /i "%~1"=="--Restarted-Signal-0x0"   GOTO RESTARTED
+IF /i "%1"=="--debugging-mode"          GOTO DEBUGMODE
+
+:: Others
+:: Help centre
+IF /i "%1"==""                          GOTO USE
+:: Also help centre
+IF /i "%1"=="--help"                    GOTO HELP
+:: Shows version
+IF /i "%1"=="--version"                 GOTO VERSION
+
+:: For everything else, that is not recognized
+IF NOT "%1"==""                         GOTO USE
+
+:: IST Command Variable
+set "istCmd=%1"
+
+:: GOTO Labels
+
+:: Internal GOTO's
+
+:RADM_CHECK
+:: Admin Restart disabled?
+if "!RADM!"=="RADMNO" (
+    GOTO :EOF
+)
+
+:: Admin Restart Automatic?
+if "!RADM!"=="RADMAUTO" (
+    echo [ NOTICE ] command %1 requires administrator rights.
+    echo But, IST will restart as administrator automatically.
+    timeout /t 1 >nul 2>&1
+    echo Restarting as administrator...
+    pause
+    powershell -NoProfile -Command "Start-Process cmd -ArgumentList @('/k', 'ist %1') -Verb RunAs"
+    set "restarted=1"
+    exit /b
+    GOTO :EOF
+)
+
+if "!RADM!"=="RADMASK" (
+    echo [ NOTICE ] command %1 requires administrator rights.
+    set /p "radmChoice=Do you want to restart as administrator? (y/n): "
+    if /i "!radmChoice!"=="y" (
+        powershell -NoProfile -Command "Start-Process cmd -ArgumentList @('/k', 'ist %1') -Verb RunAs"
+        set "restarted=1"
+        exit /b
+        GOTO :EOF
+        
+    )
+    if /i "!radmChoice!"=="n" (
+        echo Aborted, please restart the command as administrator manually.
+        exit /b
+        GOTO :EOF
+    )
+    echo Invalid selection. Please use y/n.
+    echo ERROR-CODE: 0x102
+    GOTO :EOF
+    GOTO :EOF
+)
+GOTO :EOF
+
+:DECRYPTIP
+if not exist "%istPgf%\bin\ipAddress.ist" (
+    GOTO :EOF
+)
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "& {$s=Get-Content '%istPgf%\bin\ipAddress.ist' | ConvertTo-SecureString; [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))}"`) do set "decryptedIP=%%a"
+GOTO :EOF
+
+:DEBUGMODE
+echo IST is in debug mode.
+
+GOTO :EOF
+:: End of internal GOTO's
+
+:NETWORK
+set "spdExe=speedtest"
+where %spdExe% >nul 2>nul
+if %errorlevel% neq 0 (
+    if exist "%istPgf%\external-scripts\speedtest.exe" (
+        set "spdExe=%istPgf%\external-scripts\speedtest.exe"
+    ) else (
+        echo [ ERROR ] Speedtest CLI not found.
+        GOTO :EOF
+    )
+)
+echo Running Speed Test...
+call "%spdExe%" --accept-license --accept-gdpr
+GOTO :EOF
+
+:IP
+echo Showing your IP address is a serious business! Do not show this during a stream or someone that you don't want unauthorized access to your IP address. 
+set /p "ynIp=Are you sure you want to continue? (y/n): "
+if "%ynIp%"=="y" (
+    if "%2"=="--private" (
+        :: This shows only your local IP info
+        echo Your IP Information:
+        ipconfig | findstr "IPv4"
+        GOTO :EOF
+    )
+    if "%2"=="--public" (
+        :: This shows only your public IP info
+        echo Your IP Information:
+        powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.ipify.org')"
+        GOTO :EOF
+    )
+    :: This shows your local and public IP info
+    echo Your IP Information:
+    ipconfig | findstr "IPv4"
+    echo.
+    echo Your Public IP:
+    powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.ipify.org')"
+    GOTO :EOF
+)
+if "%ynIp%"=="n" (
+    echo Aborted, security risk forbidden.
+    GOTO :EOF
+)
+GOTO :EOF
+
+:DNS
+if "%2"=="" (
+    echo Please specify a domain (e.g., ist -dns google.com)
+    GOTO :EOF
+) else (
+    echo Resolving IPs for %2...
+    nslookup %2 | findstr /i "address"
+)
+GOTO :EOF
+
+:PING
+:: 1. Ask who to ping
+set "target="
+set /p "target=Ping who? (Leave blank for google.com): "
+if "%target%"=="" set "target=google.com"
+
+:: 2. Ask if it should be continuous
+set /p "pType=do you want to ping %target% continuously? (y/n): "
+
+echo.
+if /i "%pType%"=="y" (
+    echo Pinging %target% continuously... Press CTRL+C to stop
+    ping %target% -t
+) else (
+    echo Pinging %target%...
+    ping %target%
+)
+GOTO :EOF
+
+:FLUSH
+echo Flushing DNS cache...
+ipconfig /flushdns
+GOTO :EOF
+
+:INFO
+echo Getting info...
+getmac /v
+GOTO :EOF
+
+:MAC
+echo Getting MAC address...
+getmac
+GOTO :EOF
+
+:HOSTNAME
+echo Showing the name of the windows device...
+hostname
+GOTO :EOF
+
+:LISPORT
+echo Finding Listening ports...
+netstat -an | findstr "LISTENING"
+GOTO :EOF
+
+:APPS
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: '-apps' requires Administrator permission. Please try again
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo Listing apps using the internet...
+echo (This may take a few seconds)
+netstat -b
+GOTO :EOF
+
+:MONITOR
+echo To cancel, click CTRL + C
+netstat -s 5
+GOTO :EOF
+
+:MAXSPEED
+powershell -NoProfile -Command "Get-NetAdapter | Select-Object Name, LinkSpeed"
+GOTO :EOF
+
+:LCN
+echo Showing connected networks...
+netsh wlan show profiles
+GOTO :EOF
+
+:PASS
+:: Temporarily disable the DelayedExpansion for use of !
+setlocal DisableDelayedExpansion
+
+if not "%savedWifiName%"=="0" (
+    echo A configuration file found your Wi-Fi name.
+    set /p "wifiNameChoice=Do you want to use it? (y/n): "
+) else (
+    GOTO ASKWIFI
+    GOTO :EOF
+)
+if /i "%wifiNameChoice%"=="y" GOTO USESAVED
+if /i "%wifiNameChoice%"=="n" GOTO ASKWIFI
+echo Invalid selection. Please use y/n.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:USESAVED
+for /f "usebackq tokens=*" %%a in ("%istPgf%\bin\wifiName.ist") do set "wifiName=%%a"
+GOTO DOPASS
+
+:ASKWIFI
+set /p "wifiName=What Wi-Fi do you want to get the password?: "ä
+GOTO DOPASS
+
+:DOPASS
+echo Searching for password...
+for /f "tokens=2 delims=:" %%A in ('netsh wlan show profile name^="%wifiName%" key^=clear ^| findstr "Key Content"') do set "wifiPass=%%A"
+set "wifiPass=%wifiPass:~1%"
+echo The password is: %wifiPass%
+:: EnableDelayedExpansion back
+setlocal EnableDelayedExpansion
+GOTO :EOF
+
+:LWINFO
+:: Temporarily disable the DelayedExpansion for use of !
+setlocal DisableDelayedExpansion
+if not "%savedWifiName%"=="0" (
+    echo A configuration file found your Wi-Fi name.
+    set /p "wifiNameChoice=Do you want to use it? (y/n): "
+)
+if /i "%wifiNameChoice%"=="y" GOTO USESAVED
+if /i "%wifiNameChoice%"=="n" GOTO ASKWIFI
+echo Invalid selection. Please use y/n.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:USESAVED
+for /f "usebackq tokens=*" %%a in ("%istPgf%\bin\wifiName.ist") do set "wifiName=%%a"
+GOTO DOLWINFO
+
+:ASKWIFI
+set /p "wifiName=What Wi-Fi do you want to get the info for?: "
+GOTO DOLWINFO
+
+:DOLWINFO
+netsh wlan show profile name="%wifiName%" key=clear
+:: EnableDelayedExpansion back
+setlocal EnableDelayedExpansion
+GOTO :EOF
+
+:TRACE
+if "%~2"=="" (
+    set /p "target=What do you want to trace? (e.g., google.com): "
+) else (
+    set "target=%~2"
+)
+
+echo Tracing route to %target%...
+echo [TIP] Press Ctrl+C to cancel if it takes too long.
+echo.
+tracert -d -h 15 %target%
+
+if %errorlevel% neq 0 (
+    echo.
+    echo Trace failed. Check your internet or the URL spelling.
+    echo ERROR-CODE: 0x102
+)
+GOTO :EOF
+
+:ACTIVE
+netstat -n | findstr "ESTABLISHED"
+GOTO :EOF
+
+:HISTORY
+ipconfig /displaydns | findstr "Record Name"
+GOTO :EOF
+
+:DRIVERS
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Installing the drivers for IST, REQUIRES administrator rights.
+    echo Please restart the terminal as administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+set "TitleDrivers=      IST v%version% - Driver Installer"
+echo !line!
+echo !spaces!!TitleDrivers!
+echo !line!
+title IST v%version% - Drivers Installer
+echo 1. Speedtest CLI (ist -check-network)
+echo 2. Installs Winget
+echo 3. Updates the drivers
+set /p "choice=Select drivers (A for All, Q to quit): "
+
+if "!choice!"=="1" (
+    GOTO SPEEDTESTDRIVER
+    GOTO :EOF
+)
+if "!choice!"=="2" (
+    GOTO DRIVERWINGET
+    GOTO :EOF
+)
+if "!choice!"=="3" (
+    GOTO DRIVERUPDATE
+    GOTO :EOF
+)
+if /i "!choice!"=="a" (
+    GOTO ALLDRIVERS
+    GOTO :EOF
+)
+if /i "!choice!"=="q" (
+    GOTO :EOF
+)
+echo Invalid Selection
+GOTO :EOF
+
+:SPEEDTESTDRIVER
+where winget >nul 2>nul
+if %errorlevel% EQU 0 (
+    echo Installing Speedtest CLI via WinGet...
+    winget install --id Ookla.Speedtest.CLI -e --silent --accept-source-agreements --accept-package-agreements
+) else (
+    echo [!] WinGet not found. Falling back to manual download...
+    powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-win64.zip' -OutFile '%TEMP%\speedtest.zip'"
+    powershell -NoProfile -Command "Expand-Archive -Path '%TEMP%\speedtest.zip' -DestinationPath '%istPgf%\external-scripts' -Force"
+    echo [ OK ] Speedtest CLI manually installed to %istPgf%\external-scripts.
+)
+GOTO :EOF
+
+:DRIVERWINGET
+where winget >nul 2>nul
+if %errorlevel% EQU 0 (
+    echo [ NOTICE ] Winget is already installed on the system.
+    GOTO :EOF
+) else (
+    echo [!] WinGet not found. Attempting to install WinGet...
+    powershell -NoProfile -Command ^
+    "$progressPreference='silentlyContinue';" ^
+    "Write-Host 'Downloading WinGet...';" ^
+    "Invoke-WebRequest -Uri 'https://aka.ms/getwinget' -OutFile '%TEMP%\winget.msixbundle';" ^
+    "Write-Host 'Downloading VCLibs dependency...';" ^
+    "Invoke-WebRequest -Uri 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx' -OutFile '%TEMP%\vclibs.appx';" ^
+    "Write-Host 'Downloading UIXaml dependency...';" ^
+    "Invoke-WebRequest -Uri 'https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx' -OutFile '%TEMP%\uixaml.appx';" ^
+    "Write-Host 'Installing...';" ^
+    "Add-AppxPackage '%TEMP%\vclibs.appx';" ^
+    "Add-AppxPackage '%TEMP%\uixaml.appx';" ^
+    "Add-AppxPackage '%TEMP%\winget.msixbundle'"
+    echo [ OK ] WinGet installed. Please restart IST.
+    GOTO :EOF
+)
+
+GOTO :EOF
+
+:DRIVERUPDATE
+echo Checking for driver updates...
+where winget >nul 2>nul
+if %errorlevel% == 0 (
+    echo Checking for Speedtest CLI updates...
+    winget upgrade --id Ookla.Speedtest.CLI --silent --accept-source-agreements >nul 2>&1
+    echo [ OK ] Speedtest CLI updated or already up to date.
+)
+echo All drivers are now at the latest version.
+GOTO :EOF
+
+:ALLDRIVERS
+call :SPEEDTESTDRIVER
+call :DRIVERWINGET
+GOTO :EOF
+
+:USAGE
+echo Gathering Info...
+netstat -e
+GOTO :EOF
+
+:ADAPTERSTATUS
+echo Listing Status...
+netsh int show interface
+GOTO :EOF
+
+:GATE
+echo Showing...
+ipconfig | findstr "Gateway"
+GOTO :EOF
+
+:SETUP
+if exist "%PROGRAMFILES%\IST\IST.bat" (
+    echo ERROR: IST is already installed.
+    echo Use '-uninstall' to remove.
+    echo ERROR-CODE: 0x1
+    GOTO :EOF
+)
+if exist "%LOCALAPPDATA%\IST\IST.bat" (
+    echo ERROR: IST is already installed.
+    echo Use '-uninstall' to remove.
+    echo ERROR-CODE: 0x1
+    GOTO :EOF
+)
+
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Setting IST fully up, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+set "STtitle=IST: Internet Servicing Tool Full Setup wizard"
+echo !line!
+echo !spaces!!STtitle!
+echo !line!
+echo.
+echo [1] - Install IST in Program Files (for all users)
+echo [2] - Install IST in Appdata (for current user only)
+echo [3] - Install Drivers
+echo [Q] - Quit Setup
+echo.
+set /p "setupChoice=Choose an option: "
+if /i "%setupChoice%"=="1" (
+    set "instDir=%PROGRAMFILES%"
+    GOTO MAINSETUP
+    GOTO :EOF
+) 
+if /i "%setupChoice%"=="2" (
+    set "instDir=%LOCALAPPDATA%"
+    GOTO MAINSETUP
+    GOTO :EOF
+)
+if /i "%setupChoice%"=="3" (
+    GOTO DRIVERS
+    GOTO :EOF
+)
+if /i "%setupChoice%"=="q" ( GOTO :EOF )    
+echo Invalid Selection. Setup Aborted.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:MAINSETUP
+echo Starting Full Setup...
+
+:: 1/5, ProgramFiles Add
+echo [1/5] Installing IST as Local Program...
+mkdir "%instDir%\IST"
+mkdir "%instDir%\IST\log-files"
+mkdir "%instDir%\IST\external-scripts"
+mkdir "%instDir%\IST\bin"
+:: Log Data [1/5]
+echo [%date% %time%] Created Installation Folder "%instDir%\ist" >> "%instDir%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%instDir%\ist\log-files" >> "%instDir%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%instDir%\ist\external-scripts" >> "%instDir%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%instDir%\ist\bin" >> "%instDir%\IST\log-files\Installation-log.txt"
+echo [ OK ] Made Installation folders and files
+
+:: 2/5, Drivers
+echo [2/5] Installing Drivers (Auto-selecting 'A')...
+:: Use 'echo a |' to feed the input into the call
+echo a | call "%~f0" --install-drivers >nul
+:: Log Data [2/10]
+echo [%date% %time%] Installed Drivers >> "%instDir%\IST\log-files\Installation-log.txt"
+
+:: 3/5, setting IST as PATH
+echo [3/5] Setting IST to systems PATH...
+if "%instDir%"=="%LOCALAPPDATA%" (
+    powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';%instDir%\IST', 'User')"
+) else (
+    powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';%instDir%\IST', 'Machine')"
+)
+echo [ OK ] Set IST in Systems PATH.
+
+:: 4/5, Flushing DNS, thus uptimizing the system 
+echo [4/5] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [%date% %time%] Flushed the DNS >> "%instDir%\IST\log-files\Installation-log.txt"
+
+
+:: 5/5, Moving IST
+echo [5/5] Moving IST to ProgramFiles...
+echo [ NOTICE ] while IST is moving, IST cannot do other commmands at the same time while moving
+copy /y "%~f0" "%instDir%\IST\IST.bat" >nul
+echo Installation Complete!
+start "" "%instDir%\IST\IST.bat"
+echo [%date% %time%] Moved IST into "%instDir%\IST" >> "%instDir%\IST\log-files\Installation-log.txt"
+
+:: Finishing
+echo Finishing Installation...
+echo Installation Finished.
+
+echo Restarting the Terminal
+call "%~f0" -restart >nul
+GOTO :EOF
+
+:SETDNS
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Setting a custom DNS, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo presets:
+echo ist -set-dns gaming
+echo ist -set-dns stability
+echo ist -set-dns google
+echo ist -set-dns cloudflare
+echo ist -set-dns security
+echo ist -set-dns ad-protection
+
+:: 1. Define the Presets (The "Database")
+set "gaming=1.0.0.1"
+set "stability=8.8.4.4"
+set "google=8.8.8.8"
+set "cloudflare=1.1.1.1"
+set "security=9.9.9.9"
+set "adProtection=94.140.14.14"
+ping 94.140.14.14 >nul 2>&1
+if "%ERRORLEVEL%" NEQ 0 (set "adProtection=94.140.15.15")
+
+:: 2. The Bridge: Point %primary% to the chosen preset
+set "primary=!%~2!"
+
+:: 3. Validation: Make sure the user didn't type a fake preset
+if "%primary%"=="" (
+    echo ERROR: '%~2' is not a valid preset.
+    echo Use: gaming, stability, google, cloudflare, etc.
+    echo ERROR-CODE: 0x102
+    GOTO :EOF
+)
+
+:: 4. The Action
+echo Applying %~2 DNS (%primary%)...
+netsh interface ip set dns name="%adapter%" source=static address=%primary%
+ipconfig /flushdns >nul
+echo [ OK ] DNS updated successfully.
+GOTO :EOF
+
+:LOG
+dir /b "istPgf\log-files"
+set /p "logFile=What file do you want to view?: "
+if not exist "%logFile%" (
+    echo System cannot find the file specified.
+    GOTO :EOF
+)
+type "%logFile%"
+GOTO :EOF
+
+:UPDATE
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Updating IST, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2 
+    GOTO :EOF
+)
+
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.github.com/repos/Stefi9/IST/releases/latest').tag_name"`) do set "lateVer=%%a"
+
+if "v%version%" EQU "%lateVer%" (
+    echo [ OK ] You are up to date (v%version%)
+) else (
+    echo Update available! - %lateVer%
+    set /p "YNUPD=Do you want to update to %lateVer%? (y/n) "
+    if "!YNUPD!"=="y" (
+        echo Downloading...
+        set "zipURL=https://github.com/Stefi9/IST/releases/latest/download/IST.zip"
+        set "destination=%USERPROFILE%\Downloads\update.zip"
+        powershell -NoProfile -Command "Invoke-WebRequest -Uri '!zipURL!' -OutFile '!destination!'"
+        echo Extracting...
+        powershell -NoProfile -Command "Expand-Archive -Path '!destination!' -DestinationPath '%istPgf%' -Force"
+        del !destination!
+        echo [ OK ] IST has been updated to !lateVer!.
+    ) else (
+        echo Aborted, IST stays at version v%version%
+    )
+)  
+GOTO :EOF
+
+:OPTIMIZE
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Optimizing (fully), REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+ipconfig /flushdns >nul
+echo [%date% %time%] Flushed DNS >> "%istPgf%\log-files\Optimization-log.txt"
+netsh int ipv6 set teredo disabled
+echo [%date% %time%] Disabled IPv6 >> "%istPgf%\log-files\Optimization-log.txt"
+netsh int ip set dns "Wi-Fi" static 8.8.8.8
+echo [%date% %time%] Set DNS to Google's DNS >> "%istPgf%\log-files\Optimization-log.txt"
+echo [ OK ] Device was Optmized successfully.
+GOTO :EOF
+
+:TYPE
+echo Your IST version is %type%
+GOTO :EOF
+
+:EXPORTLOG
+copy "%istPgf%\log-files" "%USERPROFILE%\Desktop\"
+GOTO :EOF
+
+:RESTART
+if /i "%2"=="--as-admin" (
+    powershell -NoProfile -Command "Start-Process 'cmd.exe' -ArgumentList '/k \"\"%istPgf%\ist.bat\" --Restarted-Signal-0x0\"' -Verb RunAs"
+    exit
+    GOTO :EOF
+)
+
+:: Normal restart if flag is missing
+start "" "%istPgf%\ist.bat" --Restarted-Signal-0x0
+exit
+GOTO :EOF
+
+:RESTARTED
+echo IST Restarted successfully.
+GOTO :EOF
+
+:REINSTALL
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Reinstalling IST, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+if not exist "%PROGRAMFILES%\IST\IST.bat" (
+    echo ERROR: IST is not installed in Program Files.
+    echo There is nothing to reinstall.
+    echo ERROR-CODE: 0x01
+    GOTO :EOF
+)
+
+if not exist "%LOCALAPPDATA%\IST\IST.bat" (
+    echo ERROR: IST is not installed in AppData.
+    echo There is nothing to reinstall.
+    echo ERROR-CODE: 0x01
+    GOTO :EOF
+)
+
+set "RTtitle=IST: Internet Servicing Tool Reinstallation"
+echo !line!
+echo !spaces!!RTtitle!
+echo !line!
+
+
+:: 1. Check if we are currently running from the folder we want to delete
+if /i "%~dp0"=="%PROGRAMFILES%\IST\" (
+    :: Copy the script to the Windows Temp folder
+    copy /y "%~f0" "%temp%\IST_Updater.bat" >nul
+    
+    :: Run the copy from the Temp folder and tell it to skip back to the reinstall logic
+    start "" "%temp%\IST_Updater.bat" --Reinstall-Script-Installer
+    
+    :: Close this version immediately so the folder is no longer "in use"
+    exit /b
+)
+
+:123456789-123456789
+if %istPgf%=="%PROGRAMFILES%\IST" (
+    GOTO 123456789-123456789PGF
+) else if %istPgf%=="%LOCALAPPDATA%\IST" (
+    GOTO 123456789-123456789ADA
+) else (
+    echo ERROR: Uninstalling IST, but IST is not running from an installation folder.
+    echo Please run the version of IST that is installed to uninstall properly.
+    echo ERROR-CODE: 0x102
+    GOTO :EOF
+)
+
+:123456789-123456789PGF
+:: 1/4, Keeping IST in Downloads as Portable Program
+echo [1/4] Keeping IST in Downloads as a Portable Program...
+copy /y "%~f0" "%USERPROFILE%\Downloads\IST_Portable.bat"
+echo [ OK ] moved IST in downloads as a Portable Program
+
+:: 2/5, Removing Files
+echo [2/4] Removing Files...
+rd /s /q "%istPgf%\IST"
+echo [ OK ] Removed Files.
+
+:: 3/4, removing IST from PATH
+echo [3/4] Remowing IST from PATH...
+powershell -NoProfile -Command "$p=[Environment]::GetEnvironmentVariable('Path','Machine'); $p=$p -replace ';%istPgf%\\IST',''; [Environment]::SetEnvironmentVariable('Path',$p,'Machine')"
+
+:: 4/4, Flushing DNS, thus uptimizing the system 
+echo [4/4] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [ OK ] Flushing DNS finished.
+
+:: Finishing
+echo Finishing Uninstallation...
+echo Uninstallation Finished.
+
+:: 1/5, ProgramFiles Add
+echo [1/5] Installing IST as Local Program...
+mkdir "%PROGRAMFILES%\IST"
+mkdir "%PROGRAMFILES%\IST\log-files"
+mkdir "%PROGRAMFILES%\IST\external-scripts"
+mkdir "%PROGRAMFILES%\IST\bin"
+:: Log Data [1/4]
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist\log-files" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%PROGRAMFILES%\ist\external-scripts" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+echo [ OK ] Made Installation folders and files
+
+:: 2/5, Drivers
+echo [2/5] Installing Drivers (Auto-selecting 'A')...
+:: Use 'echo a |' to feed the input into the call
+echo a | call "%~f0" --install-drivers >nul
+:: Log Data [2/4]
+echo [%date% %time%] Installed Drivers >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+:: 3/5, setting IST as PATH
+echo [3/5] Setting IST to systems PATH...
+powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';%PROGRAMFILES%\IST', 'Machine')"
+echo [ OK ] Set IST in Systems PATH.
+
+:: 4/5, Flushing DNS, thus uptimizing the system 
+echo [4/5] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+:: Log Data [3/4]
+echo [%date% %time%] Flushed the DNS >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+
+:: 5/5, Moving IST
+echo [5/5] Moving IST to ProgramFiles...
+echo [ NOTICE ] while IST is moving, IST cannot do other commmands at the same time while moving
+copy /y "%~f0" "%PROGRAMFILES%\IST\IST.bat" >nul
+echo Installation Complete!
+start "" "%PROGRAMFILES%\IST\IST.bat"
+:: Log Data [4/4]
+echo [%date% %time%] Moved IST into "%PROGRAMFILES%\IST" >> "%PROGRAMFILES%\IST\log-files\Installation-log.txt"
+
+:: Finishing
+echo Finishing Installation...
+echo Installation Finished.
+
+echo Restarting the Terminal
+call "%~f0" -restart >nul
+GOTO :EOF
+
+:123456789-123456789ADA
+:: 1/4, Keeping IST in Downloads as Portable Program
+echo [1/4] Keeping IST in Downloads as a Portable Program...
+copy /y "%~f0" "%USERPROFILE%\Downloads\IST_Portable.bat"
+echo [ OK ] moved IST in downloads as a Portable Program
+
+:: 2/5, Removing Files
+echo [2/4] Removing Files...
+rd /s /q "%LOCALAPPDATA%\IST"
+echo [ OK ] Removed Files.
+
+:: 3/4, removing IST from PATH
+echo [3/4] Remowing IST from PATH...
+powershell -NoProfile -Command "$p=[Environment]::GetEnvironmentVariable('Path','Machine'); $p=$p -replace ';%LOCALAPPDATA:\=\\%\\IST',''; [Environment]::SetEnvironmentVariable('Path',$p,'Machine')"
+
+:: 4/4, Flushing DNS, thus uptimizing the system 
+echo [4/4] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+echo [ OK ] Flushing DNS finished.
+
+:: Finishing
+echo Finishing Uninstallation...
+echo Uninstallation Finished.
+
+:: 1/5, ProgramFiles Add
+echo [1/5] Installing IST as Local Program...
+mkdir "%LOCALAPPDATA%\IST"
+mkdir "%LOCALAPPDATA%\IST\log-files"
+mkdir "%LOCALAPPDATA%\IST\external-scripts"
+mkdir "%LOCALAPPDATA%\IST\bin"
+:: Log Data [1/4]
+echo [%date% %time%] Created Installation Folder "%LOCALAPPDATA%\ist" >> "%LOCALAPPDATA%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%LOCALAPPDATA%\ist\log-files" >> "%LOCALAPPDATA%\IST\log-files\Installation-log.txt"
+echo [%date% %time%] Created Installation Folder "%LOCALAPPDATA%\ist\external-scripts" >> "%LOCALAPPDATA%\IST\log-files\Installation-log.txt"
+echo [ OK ] Made Installation folders and files
+
+:: 2/5, Drivers
+echo [2/5] Installing Drivers (Auto-selecting 'A')...
+:: Use 'echo a |' to feed the input into the call
+echo a | call "%~f0" --install-drivers >nul
+:: Log Data [2/4]
+echo [%date% %time%] Installed Drivers >> "%LOCALAPPDATA%\IST\log-files\Installation-log.txt"
+
+:: 3/5, setting IST as PATH
+echo [3/5] Setting IST to systems PATH...
+powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';%LOCALAPPDATA%\IST', 'Machine')"
+echo [ OK ] Set IST in Systems PATH.
+
+:: 4/5, Flushing DNS, thus uptimizing the system 
+echo [4/5] Flushing DNS and optimizing...
+call "%~f0" -flushdns >nul
+:: Log Data [3/4]
+echo [%date% %time%] Flushed the DNS >> "%LOCALAPPDATA%\IST\log-files\Installation-log.txt"
+
+
+:: 5/5, Moving IST
+echo [5/5] Moving IST to ProgramFiles...
+echo [ NOTICE ] while IST is moving, IST cannot do other commmands at the same time while moving
+copy /y "%~f0" "%LOCALAPPDATA%\IST\IST.bat" >nul
+echo Installation Complete!
+start "" "%LOCALAPPDATA%\IST\IST.bat"
+:: Log Data [4/4]
+echo [%date% %time%] Moved IST into "%LOCALAPPDATA%\IST" >> "%LOCALAPPDATA%\IST\log-files\Installation-log.txt"
+
+:: Finishing
+echo Finishing Installation...
+echo Installation Finished.
+
+echo Restarting the Terminal
+call "%~f0" -restart >nul
+GOTO :EOF
+
+:INTTIME
+for /f "tokens=1,2,3" %%A in ('dir /T:C "%istPgf%" ^| findstr /i "ist.bat"') do (
+    set "dateMade=%%A"
+    set "timeMade=%%B %%C"
+)
+echo IST was installed on the %dateMade% at %timeMade%.
+GOTO :EOF
+
+:CHECKUSE
+set "maxFail=3"
+set "downLvl=0"
+set "downSite="
+
+echo Testing Connectivity...
+
+ping -n 1 1.1.1.1 >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    set /a downLvl+=1
+    set "downSite=cloudflare"
+)
+
+ping -n 1 8.8.8.8 >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    set /a downLvl+=1
+    if defined downSite (set "downSite=!downSite!, google") else (set "downSite=google")
+)
+
+ping -n 1 8.8.4.4 >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    set /a downLvl+=1
+    if defined downSite (set "downSite=!downSite!, google2") else (set "downSite=google2")
+)
+
+ping -n 1 9.9.9.9 >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    set /a downLvl+=1
+    if defined downSite (set "downSite=!downSite!, quad9") else (set "downSite=quad9")
+)
+
+if !downLvl! LEQ %maxFail% (
+    echo [ OK ] Internet is reachable.
+    if defined downSite (
+        echo.
+        echo [ NOTICE ] there are sites down, but don't interfere with your network connection: !downSite!.
+    )
+    GOTO :EOF
+) else (
+    echo [ FAIL ] Internet is Down or strictly firewalled.
+    echo ERROR-CODE: 0x5
+    GOTO :EOF
+)
+
+:CONNECTION
+echo Detecting active hardware...
+netsh interface show interface | findstr /i "Connected" | findstr /i "Wi-Fi" >nul && (
+    echo Type: Wireless (Wi-Fi^) detected.
+) || (
+    netsh interface show interface | findstr /i "Connected" | findstr /i "Ethernet" >nul && (
+        echo Type: Wired (Ethernet^) detected.
+    ) || (
+        echo Type: IST could not verify the Connection Type.
+    )
+)
+GOTO :EOF
+
+:LOGAM
+echo List of Log Files:
+echo.
+dir /b "%istPgf%\Log-files"
+GOTO :EOF
+
+:EC
+cls
+echo List of Error Codes:
+echo 0x1
+echo 0x01
+echo 0x001
+echo 0x2
+echo 0x5
+echo 0x32
+echo 0x102
+echo 0x406
+echo 0x908
+echo.
+set /p "searchCode=Enter Error Code (example, 0x2): "
+
+if "%searchCode%"=="0x1" (
+    echo 0x1 - IST has been already Installed on the system
+    GOTO :EOF
+)
+if "%searchCode%"=="0x01" (
+    echo 0x01 - IST is not Installed, so you cannot ReInstall IST
+    GOTO :EOF
+)
+if "%searchCode%"=="0x001" (
+    echo 0x001 - IST is not Installed, so you cannot UnInstall IST
+    GOTO :EOF
+)
+if "%searchCode%"=="0x2" (
+    echo 0x2 - The User does not run the command as Administrator
+    GOTO :EOF
+)
+if "%searchCode%"=="0x5" (
+    echo 0x5 - The User is not connected to the Internet or has a strict FireWall
+    GOTO :EOF
+)
+if "%searchCode%"=="0x32" (
+    echo 0x32 - IST cannot Run on 32-bit, because it is built on 64-bit architecture
+    GOTO :EOF
+)
+if "%searchCode%"=="0x102" (
+    echo 0x102 - The User did not write the right thing on execution
+    GOTO :EOF
+)
+if "%searchCode%"=="0x406" (
+    echo 0x406 - IST could not do the function specified
+    GOTO :EOF
+)
+if "%searchCode%"=="0x908" (
+    echo 0x908 - IST could not find what the user requested
+    GOTO :EOF
+)
+
+:: This part only runs if none of the GOTO commands above were triggered
+if not "%searchCode%"=="" (
+    echo ERROR: Could not find the error code specified
+    echo ERROR-CODE: 0x102
+)
+GOTO :EOF
+
+:TUI
+set "TUITitle=IST - Internet Servicing Tool TUI Mode"
+set "mode=tui"
+
+for /f "tokens=2 delims=:" %%a in ('mode con ^| findstr "Columns"') do set /a "width=%%a"
+for /f "tokens=2 delims=:" %%a in ('mode con ^| findstr "Lines"') do set /a "height=%%a"
+
+:: Set your requirements
+set "minWidth=120"
+set "minHeight=30"
+
+echo Current size: %width% x %height%
+
+:: Check dimensions
+if %width% LSS %minWidth% GOTO :TUI-SMALL
+if %height% LSS %minHeight% GOTO :TUI-SMALL
+
+cls
+echo !line!
+echo !spaces!!TUITitle!
+echo !line!
+echo    [1] - Check Networking                                               [28] - Exports The Log to the Desktop
+echo    [2] - Shows IP                                                       [29] - Restarts the Terminal
+echo    [3] - Shows the DNS of the User selected URL                         [30] - Reinstalls IST
+echo    [4] - Pings the Server Chosen                                        [31] - Shows the time IST was installed
+echo    [5] - Flushes the DNS                                                [32] - Is The Internet Working?
+echo    [6] - Shows Network Information                                      [33] - Shows Connection Type
+echo    [7] - Shows MAC Address                                              [34] - Shows Log Amount
+echo    [8] - Shows The Device's Hostname                                    [35] - What Is New in IST
+echo    [9] - Shows Currently Listend Ports                                  [36] - Shows Error Codes
+echo   [10] - Shows Apps That Are Currently Connected To The Internet        [37] - Checks The Proxy
+echo   [11] - Refreshes data every 5 seconds                                 [38] - Converts Bits to Bytes
+echo   [12] - Shows Maximum network card speed                               [39] - Exports Windows Network Tools Configs
+echo   [13] - List All Connected Networks                                    [40] - TUI Mode
+echo   [14] - Shows Password for the Selected Network                        [41] - Shows Amount of IST Commands
+echo   [15] - List info About WiFi                                           [42] - Shows The newly added Commands
+echo   [16] - Lists external site dependencies                               [43] - Sets or removes FireWall rules
+echo   [17] - Shows DNS Cache History                                        [44] - Cleans the log files
+echo   [18] - Installs Drivers                                               [45] - Changes the console's theme
+echo   [19] - Shows the Usage                                                [46] - Shows VPN status
+echo   [20] - Shows Network Adapter Status                                   [47] - Shows information about networking
+echo   [21] - Shows the Gateway                                              [48] - Shows open ports
+echo   [22] - Installs IST as Local Program                                  [49] - Shows information about your IP
+echo   [23] - Sets the DNS to what the User wants                            [50] - Configure IST
+echo   [24] - Shows all logs                                                 [51] - Shows the hosts file
+echo   [25] - Updates IST                                                    [52] - Shows the line count of IST
+echo   [26] - Optimizes the Computer                                         [53] - Checks, if a port is open or not
+echo   [27] - Shows the IST Type                                             [D] - TUI DeadZone
+
+set /p "choice=Select an option (1-50, q for exit): "
+echo.
+
+:: Selection Logic
+if /i "!choice!"=="1"  cls && GOTO NETWORK
+if /i "!choice!"=="2"  cls && GOTO IP
+if /i "!choice!"=="3"  cls && GOTO DNS
+if /i "!choice!"=="4"  cls && GOTO PING
+if /i "!choice!"=="5"  cls && GOTO FLUSH
+if /i "!choice!"=="6"  cls && GOTO INFO
+if /i "!choice!"=="7"  cls && GOTO MAC
+if /i "!choice!"=="8"  cls && GOTO HOSTNAME
+if /i "!choice!"=="9"  cls && GOTO LISPORT
+if /i "!choice!"=="10" cls && GOTO APPS
+if /i "!choice!"=="11" cls && GOTO MONITOR
+if /i "!choice!"=="12" cls && GOTO MAXSPEED
+if /i "!choice!"=="13" cls && GOTO LCN
+if /i "!choice!"=="14" cls && GOTO PASS
+if /i "!choice!"=="15" cls && GOTO LWINFO
+if /i "!choice!"=="16" cls && GOTO TRACE
+if /i "!choice!"=="17" cls && GOTO HISTORY
+if /i "!choice!"=="18" cls && GOTO DRIVERS
+if /i "!choice!"=="19" cls && GOTO USAGE
+if /i "!choice!"=="20" cls && GOTO ADAPTERSTATUS
+if /i "!choice!"=="21" cls && GOTO GATE
+if /i "!choice!"=="22" cls && GOTO SETUP
+if /i "!choice!"=="23" cls && GOTO SETDNS
+if /i "!choice!"=="24" cls && GOTO LOG
+if /i "!choice!"=="25" cls && GOTO UPDATE
+if /i "!choice!"=="26" cls && GOTO OPTIMIZE
+if /i "!choice!"=="27" cls && GOTO TYPE
+if /i "!choice!"=="28" cls && GOTO EXPORTLOG
+if /i "!choice!"=="29" cls && GOTO RESTART
+if /i "!choice!"=="30" cls && GOTO REINSTALL
+if /i "!choice!"=="31" cls && GOTO INTTIME
+if /i "!choice!"=="32" cls && GOTO CHECKUSE
+if /i "!choice!"=="33" cls && GOTO CONNECTION
+if /i "!choice!"=="34" cls && GOTO LOGAM
+if /i "!choice!"=="35" cls && GOTO WN
+if /i "!choice!"=="36" cls && GOTO EC
+if /i "!choice!"=="37" cls && GOTO CHECKPROXY
+if /i "!choice!"=="38" cls && GOTO CONVERTBYTES
+if /i "!choice!"=="39" cls && GOTO EXPORTCONFS
+if /i "!choice!"=="40" cls && GOTO TUI
+if /i "!choice!"=="41" GOTO CC 
+if /i "!choice!"=="42" GOTO NCC
+if /i "!choice!"=="43" cls && GOTO SFIREWALLR
+if /i "!choice!"=="44" cls && GOTO CLEANLOGS
+if /i "!choice!"=="45" cls && GOTO THEME
+if /i "!choice!"=="46" cls && GOTO VPNSTAT
+if /i "!choice!"=="47" cls && GOTO NETTIPS
+if /i "!choice!"=="48" cls && GOTO OPENPORT
+if /i "!choice!"=="49" cls && GOTO IPINFO
+if /i "!choice!"=="50" cls && GOTO CONFIGURATE
+if /i "!choice!"=="51" cls && GOTO VIEWHOSTS
+if /i "!choice!"=="52" cls && GOTO LINECOUNT
+if /i "!choice!"=="53" cls && GOTO CHECKPORT
+if /i "!choice!"=="D" GOTO TUI-DEAD
+if /i "!choice!"=="q"  cls && GOTO :EOF
+echo Invalid selection. Please use 1-54 or q.
+echo ERROR-CODE: 0x102
+pause
+GOTO TUI
+GOTO :EOF
+
+:TUI-DEAD
+if "%YOLO%"=="1" GOTO :TUI_DO
+cls
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Resetting Switching to DeadZone TUI Mode REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo You Are about to Enter DeadZone Mode inside the TUI Mode. 
+echo This Allows you to run DeadZone Commands by pressing a button (also by pressing y after that).
+echo Just Exit DeadZone Mode in the TUI and nothing should happen.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, TUI Stays Normal. 
+    timeout /t 3 /nobreak >nul
+    GOTO TUI
+)
+
+:TUI_DO
+set "TUIDEADTitle=IST: Internet Servicing Tool - TUI Mode (DEAD ZONE)"
+cls
+echo !line!
+echo !spaces!!TUIDEADTitle!
+echo !line!
+echo    [1] - Renews the IP Address                                 [6] - Sets the DNS to Google's
+echo    [2] - Removes the IST driver                                [7] - Uninstalls IST
+echo    [3] - Does Sudo rm -rf WinSock (Resets it)                  [8] - Resets ARP
+echo    [4] - Resets The FireWall                                   [9] - Resets WinSock and IP address
+echo    [5] - Turns IPv6 off                                        [10] - Changes MAC address
+echo.
+
+set /p "choice=Select an option (1-10, q for exit): "
+if /i "!choice!"=="1"  cls && GOTO DEADRENEW
+if /i "!choice!"=="2"  cls && GOTO DEADRMDRIVER
+if /i "!choice!"=="3"  cls && GOTO DEADRMSOCK
+if /i "!choice!"=="4"  cls && GOTO DEADFIRE
+if /i "!choice!"=="5"  cls && GOTO DEADIPV6
+if /i "!choice!"=="6"  cls && GOTO DEADDNS
+if /i "!choice!"=="7"  cls && GOTO DEADUNINSTALL
+if /i "!choice!"=="8"  cls && GOTO DEADRSARP
+if /i "!choice!"=="9"  cls && GOTO DEADWIPEALL
+if /i "!choice!"=="10" cls && GOTO DEADRNDMAC
+if /i "!choice!"=="Q"  cls && GOTO TUI
+echo Invalid selection. Please use 1-10 or q.
+echo ERROR-CODE: 0x102
+pause
+GOTO TUI_DO
+GOTO :EOF
+
+:TUI-SMALL
+cls
+echo !line!
+echo !spaces!!TUITitle!
+echo !line!
+echo ERROR: The Size of The Terminal does not Match the Minimum Size (120x30), so TUI mode cannot be started
+echo ERROR-CODE: 0x406
+GOTO :EOF
+
+:CC
+echo The Total Amount of Commands in IST is !cmdCount!.
+GOTO :EOF
+
+:NCC
+echo The Total Amount of New Commands in IST is !nCmdCount!.
+GOTO :EOF
+
+
+:CHECKPROXY
+echo Checking Proxy Status...
+for /f "tokens=3" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable 2^>nul') do set "prxVal=%%a"
+
+if "%prxVal%"=="0x0" (
+    echo The Proxy is Truned off.
+    GOTO :EOF
+) else if "%prxVal%"=="0x1" (
+    echo The Proxy is Turned on.
+    GOTO :EOF
+) else (
+    echo IST Could not Detect, if the Proxy is off or on.
+    GOTO :EOF
+)
+GOTO :EOF
+
+:CONVERTBYTES
+if "%~2"=="" (
+    set /p "bits=Enter the number of bits to convert: "
+) else (
+    set "bits=%~2"
+)
+echo Calculating...
+powershell -NoProfile -Command "$mb = [math]::Round(%bits% / 8, 2); Write-Host '%bits% Megabits is approximately '$mb' Megabytes (MB/s)'"
+GOTO :EOF
+
+:EXPORTCONFS
+set "outFile=%istPgf%\external-scripts\IST_Exported_Configs.txt"
+echo Generating Report...
+(
+    echo.
+    echo [ IP CONFIGURATION ]
+    ipconfig /all
+    echo.
+    echo [ INTERFACE STATS ]
+    netsh interface show interface
+    echo.
+    echo [ WIFI PROFILES ]
+    netsh wlan show profiles
+) > "%outFile%"
+echo [ OK ] Exported to: %outFile%
+GOTO :EOF
+
+:SFIREWALLR
+set /p "YN=Do you want to remove or add a FireWall Rule (Add or Rem)?: "
+
+if /i "%YN%"=="Add" (
+    set /p "ProgramName=What will the name of this rule be?: "
+    set /p "ProgramPath=What is the full path to this program?: "
+    
+    if not exist "!ProgramPath!" (
+        echo ERROR: The program specified does not exist.
+        echo ERROR-CODE: 0x406
+        GOTO :EOF
+    )
+    
+    netsh advfirewall firewall add rule name="!ProgramName!" dir=out action=block program="!ProgramPath!" enable=yes
+    echo Rule !ProgramName! added successfully.
+    GOTO :EOF
+)
+
+if /i "%YN%"=="Rem" (
+    set /p "ProgramName=What rule name do you want to remove?: "
+    netsh advfirewall firewall delete rule name="!ProgramName!"
+    echo If the name was correct, the rule is now removed.
+    GOTO :EOF
+)
+
+:: If it reaches here, the input wasn't Add or Rem
+echo ERROR: Invalid selection. Please type 'Add' or 'Rem'.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:CLEANLOGS
+if exist %istPgf%\log-files\ (
+    del %istPgf%\log-files\*
+    echo Deletion completed successfully.
+) else (
+    echo [ NOTICE ] The Log-Files directory does not exist or you are using the portable version.
+)
+GOTO :EOF
+
+:THEME
+echo Available Themes:
+echo Hacker Man - Black with Green text
+echo Ocean - Light Blue with White text
+echo Windows PowerShell - Blue with White text
+echo Blood - Black with Red text
+echo Winter - White with Black text
+echo Volcano - Red with Yellow text
+echo Ubuntu - Black with Purple text
+echo Warning Area - Black with Yellow text
+echo Old macOS days - Grey with white text
+echo Reset Colors - Black with White text
+set /p "Theme=What theme do you want?: "
+:: Theme controller
+if "%Theme%"=="Hacker Man" (
+    color 02
+    set "colorStartup=HackerMan"
+)
+if "%Theme%"=="Ocean" (
+    color 17
+    set "colorStartup=Ocean"
+)
+if "%Theme%"=="Windows PowerShell" (
+    color 1F
+    set "colorStartup=WinPWSH"
+)
+if "%Theme%"=="Blood" (
+    color 04
+    set "colorStartup=Blood"
+)
+if "%Theme%"=="Winter" (
+    color F0
+    set "colorStartup=Winter"
+)
+if "%Theme%"=="Volcano" (
+    color 4E
+    set "colorStartup=Volcano"
+)
+if "%Theme%"=="Ubuntu" (
+    color 0D
+    set "colorStartup=Ubuntu"
+)
+if "%Theme%"=="Warning Area" (
+    color 06
+    set "colorStartup=WarnArea"
+)
+if "%Theme%"=="Old macOS days" (
+    color 8F
+    set "colorStartup=OLDmacOS"
+)
+if "%Theme%"=="Reset Colors" (
+    color 07
+    set "colorStartup=Default"
+)
+:: Prefrence saver
+set /p "ynCfg=Do you want to save this theme the next time you lauch IST? (y/n): "
+if /i "%ynCfg%"=="y" (
+    if "%admStat%"=="1" (
+        echo %colorStartup% > "%istPgf%\bin\themeManager.ist"
+        echo [ OK ] - Theme saved.
+        GOTO :EOF
+    ) else (
+        echo ERROR: Cannot save the theme cause, not ran as Administrator.
+        echo ERROR-CODE: 0x2
+        GOTO :EOF
+    
+    )  
+) 
+if /i "%ynCfg%"=="n" (
+    echo The theme selected will not be saved.
+    GOTO :EOF
+)
+echo Invalid selection. Please use Y or N.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:VPNSTAT
+echo Checking VPN status...
+
+netsh interface show interface | findstr /i "Connected" | findstr /i "VPN" >nul 2>&1
+
+if %errorlevel% equ 0 (
+    echo [STATUS] Connected
+) else (
+    :: Second check for common Virtual adapters (WireGuard, OpenVPN, etc.)
+    netsh interface show interface | findstr /i "Connected" | findstr /i "Virtual" >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo [STATUS] Connected (Virtual Adapter)
+    ) else (
+        echo [STATUS] Not Connected
+    )
+)
+GOTO :EOF
+
+:NETTIPS
+cls
+set "NT=Internet Servicing Tool - Networking Tips"
+echo !line!
+echo !spaces!!NT!
+echo !line!
+echo.
+echo [1] - Popular terms used by the networking World
+echo [2] - Really common mistakes done by non-professional people in the networking World
+echo [Q] - Quit the networking tips menu
+set /p "chTips=What do you want to open? "
+if "%chTips%"=="1" GOTO NETTIPS1
+if "%chTips%"=="2" GOTO NETTIPS2
+if /i "%chTips%"=="Q" GOTO :EOF
+echo Invalid selection. Please use 1-2 or Q.
+echo ERROR-CODE: 0x102
+GOTO NETTIPS
+GOTO :EOF
+
+:NETTIPS1
+echo.
+echo [1]  - VPN
+echo [2]  - ISP
+echo [3]  - DNS
+echo [4]  - LAN
+echo [5]  - WAN
+echo [6]  - IP
+echo [7]  - MAC (address)
+echo [8]  - SSID
+echo [9]  - BSSID
+echo [10] - DDoS
+echo [11] - Proxy
+echo [12] - NAT
+echo [13] - TLS
+echo [Q]  - Quit and go to the previous screen
+set /p "chTp1=Which do you want to choose?: "
+if /i "%chTp1%"=="1"  GOTO NETTPVPN
+if /i "%chTp1%"=="2"  GOTO NETTPISP
+if /i "%chTp1%"=="3"  GOTO NETTPDNS
+if /i "%chTp1%"=="4"  GOTO NETTPLAN
+if /i "%chTp1%"=="5"  GOTO NETTPWAN
+if /i "%chTp1%"=="6"  GOTO NETTPIP
+if /i "%chTp1%"=="7"  GOTO NETTPMAC
+if /i "%chTp1%"=="8"  GOTO NETTPSSID
+if /i "%chTp1%"=="9"  GOTO NETTPBSSID
+if /i "%chTp1%"=="10" GOTO NETTPDDOS
+if /i "%chTp1%"=="11" GOTO NETTPPROXY
+if /i "%chTp1%"=="12" GOTO NETTPNAT
+if /i "%chTp1%"=="13" GOTO NETTPTLS
+if /i "%chTp1%"=="Q"  GOTO NETTIPS
+echo Invalid selection. Please use 1-13 or Q.
+echo ERROR-CODE: 0x102
+GOTO NETTIPS
+GOTO :EOF
+
+:NETTPVPN
+echo VPN - Virtual Private Network.
+echo A VPN is a service that creates a secure, encrypted "tunnel" between your device and the internet.
+echo It hides your IP address, masking your location and protecting your browsing activity from ISPs, hackers, and advertisers.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPISP
+echo ISP - Internet Service Provider
+echo An ISP is a company that provides individuals and organizations with access to the 
+echo internet and related services, such as email, website hosting, and domain registration.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPDNS
+echo DNS - Domain Name System
+echo A DNS is the internet's "phonebook," translating human-friendly domain names (e.g., google.com) into machine-readable IP addresses (e.g., 8.8.8.8).
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPLAN
+echo LAN - Local Area Network
+echo This is your home network. Everything connected to your router (your phone, PC, printer) is on the LAN.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPWAN
+echo WAN - Wide Area Network
+echo This is the "Outside World". For most people, the WAN is just the Internet itself. Your router connects your LAN to the WAN.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPIP
+echo IP - Internet Protocol
+echo This is your digital address. Normally, the IP address (exsample, 8.8.8.8)
+echo Every device has an IP to identify it. If everyone had the same IP, no one could know who is who. 
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPMAC
+echo MAC (address) - Media Access Control
+echo Unlike an IP (which can have a different value) a MAC is a permanent addition to your network card at the factory.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPSSID
+echo SSID - Service Set IDentifier
+echo Think of it as the "name" of your Wi-Fi connection. It's way more precise "BSSID" is the actual "name" of the Wi-Fi connection.
+echo Without the SSID, you saw only Hexidecimal characters inside of your Wi-Fi settings menu
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPBSSID
+echo BSSID - Basic Service Set IDentifier
+echo It is the technical name of your Wi-Fi "name". Without the BSSID, if you would name your Wi-Fi the same as your neighbours, there was no way to tell,
+echo what Wi-Fi is which! That's why it was created, to show its technical "name" (example, 2D:1E:73:F7)
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPDDOS
+echo DDoS - Distributed Denial of Service
+echo A DDoS attack is a cyberattack where multiple compromised systems flood a target. 
+echo Such as a website, server, or network, with malicious traffic to overwhelm its resources
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPPROXY
+echo Proxy - Has no acronym :P
+echo A proxy server is an intermediary between your device and the internet.
+echo It can be used for various purposes, such as improving security, filtering content, or bypassing geo-restrictions.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPNAT
+echo NAT - Network Address Translation
+echo NAT is a method used by routers to allow multiple devices on a local network to share a single public IP address when accessing the internet.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTPTLS
+echo TLS - Transport Layer Security
+echo This is an encryption layer done by HTTPS (see in Net Tips 2) to secure the connection to your website and not be able to be spied on by other people.
+pause
+GOTO NETTIPS1
+GOTO :EOF
+
+:NETTIPS2
+echo.
+echo [1]  - The difference between bits and bytes
+echo [2]  - The speed you get does not exactly mean you get it
+echo [3]  - Because the Wi-Fi is bad, the internet isn't actually bad
+echo [4]  - DNS Reliability may impact speed
+echo [5]  - 2.4GHz VS. 5GHz
+echo [6]  - A modem and a router are not equal
+echo [7]  - Restart to finish the art (for real this time)
+echo [8]  - What is a Firewall?
+echo [9]  - How a single S changes your security
+echo [10] - What is the difference between a public and private IP?
+echo [Q]  - Quit and go to the previous menu
+set /p "chTp2=Which do you want to choose?: "
+if /i "%chTp2%"=="1"  GOTO NETTP2BITBYT
+if /i "%chTp2%"=="2"  GOTO NETTP2SPDNTF
+if /i "%chTp2%"=="3"  GOTO NETTP2WFBINB
+if /i "%chTp2%"=="4"  GOTO NETTP2DNSSPD
+if /i "%chTp2%"=="5"  GOTO NETTP224GHZ
+if /i "%chTp2%"=="6"  GOTO NETTP2MDRO
+if /i "%chTp2%"=="7"  GOTO NETTP2RTFA
+if /i "%chTp2%"=="8"  GOTO NETTP2FIREWALL
+if /i "%chTp2%"=="9"  GOTO NETTP2HTTPS
+if /i "%chTp2%"=="10" GOTO NETTP2PUPRIP
+if /i "%chTp2%"=="Q"  GOTO NETTIPS
+echo Invalid selection. Please use 1-8 or Q.
+echo ERROR-CODE: 0x102
+GOTO NETTIPS
+GOTO :EOF
+
+:NETTP2BITBYT
+echo The difference between Bits and Bytes.
+echo.
+echo A byte is the full length, whereas a bit is 1/8th of a byte.
+echo 1 Byte (1B) = 8 bits (8b)
+echo So, ISP's and the internet in general measure the internet connection in mega- or gigabits. But, always divide it by 8, because it gives its
+echo actual size (which is mega- or gigabytes).
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2SPDNTF
+echo The speed you get does not exactly mean you get it
+echo.
+echo Depending on your device, it may be hard to get a better connection.
+echo Let's say your computer can go all the way to 100mbps download. And, your ISP gives you 300mbps, the reason,
+echo that your network connection is not good, isn't because of your internet or your ISP, it is because of the Network Card.
+echo You can see the maximum speed of your Network Card too using ist -max-speed.
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2WFBINB
+echo Because the Wi-Fi is bad, the internet is bad
+echo.
+echo Even if you go to speedtest.net and see a low download and upload speed, if it is just on regular Wi-Fi, it is you that is the problem.
+echo Depending on your setup, you need to either
+echo - switch to Ethernet (best solution)
+echo or
+echo - stand really close to the router
+echo Because, just putting your router next to your computer can certianly increase to almost double the speed.
+echo And, if you have an Ethernet port and you have a long enough cable, it gives you lower latency and an extra double the speed.
+echo If you don't have an Ethernet port or you are really far away from your router and you cannot change its position, the only option
+echo you have, is a MESH system. Just plug in some bad boys into the power and put them in the most optimal positions, you may get the
+echo same results as if you moved the router next to your computer. But, their problem, is that they can be expensive.
+echo It is not the Wi-Fi you got is bad, it is the way the Wi-Fi is.
+echo.
+echo Another thing you could do, if you want to get the performance of Ethernet, just get your phone, turn "USB Tethering" on, connect
+echo your phone to your computer via the longest, fastest cable and put the phone as close to the router. Especially good for PCs without a
+echo Ethernet port or your PC doesn't support Ethernet (why should it not?)
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2DNSSPD
+echo DNS Reliability may impact speed
+echo.
+echo Depending on the DNS, your internet may be reduced. Exsample, the DNS from your ISP, if it works it really works.
+echo If it doesn't work it really doesn't work. And, that is bad. Just setting the DNS using ist --deadzone-set-dns can fix most internet problems.
+echo Especially if you set a DNS that doesn't work (like 33456.3456.21.12) that DNS, does not even exist!
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP224GHZ
+echo 2.4GHz VS. 5GHz
+echo.
+echo Both those have their pros and cons. Choose 2.4GHz if
+echo - you want your internet to work on any device
+echo - a bigger range than 5GHz
+echo - if you only connect to the internet on a maximum of 3 devices
+echo The problems of 2.4GHz are
+echo - are a pain to use with more than 3 devices
+echo - slower than 5GHz (a 125mbps limit)
+echo - lower efficiency
+echo Choose 5GHz if
+echo - you have a device that is from 2013 and up
+echo - you want more reliability
+echo - you want that 100mbps limit gone
+echo But nothing is perfect, 5GHz has also problems
+echo - is not supported from devices older than 2013 (because of its huge speed difference from 2.4GHz)
+echo - is way shorter (may require being way nearer)
+echo - don't have thick walls between your connection
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2MDRO
+echo Most people say that the "blinking box of doom" (the thing behind your TV) a Modem and a Router the 
+echo same thing, but they have a giant difference between eachother.
+echo A Modem:
+echo - Brings your Internet into your house
+echo - Translates the signal from your ISP
+echo - Makes the internet actually work
+echo A Router:
+echo - Is the thing you actually connect to
+echo - Makes the actual LAN
+echo - That is the culprit for a bad Internet connection
+echo They have huge differences, they are not the same.
+pause 
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2RTFA
+echo Sometimes, you are just gaming on Wi-Fi when, it just randomly got worse. Why? It's because of the router. Always try this.
+echo If your connection was good before the "incedent", you can try these steps:
+echo - Try going next to it (biggest culprit especially for 5GHz)
+echo - Try using Ethernet in that same router
+echo - Make a Wi-Fi hotspot for your phone.
+echo If all these are not true (except the hotspot), a restart may be required.
+echo Here's on how to check. Open your web browser and type in the IP of your router. (usually 192.168.178.1)
+echo Then, login and find your Uptime. If the Uptime is bigger than 125 days, a restart is recommended.
+echo Because:
+echo - Updates are in the background, praying for someone to restart the router
+echo - Memory leaks
+echo - The performance will be reduced
+echo Just take your time, unplug the power supply of the router, wait 1-2 minutes, then plug it back in.
+echo You may have made your son lose bedwars, but it will jump that speed all the way back as it's supposed to.
+echo Also, if your Internet is used a lot (like you have iPad kids), try doing this in the night when everyone
+echo is sleeping. So, that your son will not cry for 10 hours straight, just because of a restart. 
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2FIREWALL
+echo A Firewall is a network security system that controls the incoming and outgoing network traffic depending on what rules were set.
+echo Useful for:
+echo - Schools (so you cannot play games on school Wi-Fi)
+echo - Work (so you cannot hack into the company system)
+echo - Home (blocks malicious traffic and programs)
+echo Example:
+echo Let's say you have a program. We'll call it "myProgram.exe". It is a program that needs the internet to work.
+echo But, if you launch it, a Windows Security alert will pop up. "Do you want this program to have access to the internet?"
+echo If you click Yes, a rule will be made in the Firewall, allowing "myProgram.exe" to send incoming and outgoing network traffic.
+echo If you click No, a rule will be made in the Firewall, blocking "myProgram.exe" from sending incoming and outgoing network traffic.
+echo.
+echo Unless it's trusted or you trust it, always click No. Because, if you click Yes, the program can do anything on your network.
+echo It can send your files to hackers, use a worm to infect other devices on your network or even download other malware.
+echo So, unless you know what it does, always click No.
+echo Example Programs:
+echo - Web Browsers like Google Chrome, Microsoft Edge or The lion Brave (duh)
+echo - adb.exe (in use of its Deamon)
+echo - Geometry Dash (to know if you are online or not)
+echo - A remote desktop (how would you connect otherwise?)
+echo - Drivers (to, well be able to use the internet)
+echo - IST (duh)
+pause 
+GOTO NETTIPS2
+GOTO :EOF
+
+:NTTP2HTTPS
+echo What even is the S at the end of https? Well, you need to firstly know, that http (and its S version) is an acronym.
+echo HTTP - Hypertext Transfer Protocol
+echo It is a site protocol. The most used one by websites. There are other ones, like the URI's of apps on your computer, but those aren't websites.
+echo Now, http sites are generally unsafe, because, add an S, it becomes Hypertext Transfer Protocol Secure. So, the connection between the server and you are secured.
+echo Because, on an insecure connection, a lot of things can happen because it's unencrypted. That's a huge issue, since anyone can spy on what you are doing.
+echo Just go to a HTTPS site anytime instead, since it is encrypted using TLS (explained in Net Tips 1).
+echo Unless, your device is ANCIENT, it may not support the https site protocol. So, double check if it works.
+echo Here's how:
+echo Open up google.com. Then click the address bar.
+echo If it says "http://www.google.com" then your device is one of the few, that don't support a secure connection.
+echo If it says "https://www.google.com" then your device supports a secure connection.
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:NETTP2PUPRIP
+echo A private IP address and public IP address are not the same thing.
+echo A public IP address is the IP address that will be seen by every site. While a private one, is marked for your hardware, to identify it by anything else.
+echo Your IP is 123.45.67.89 as your public one. While your private one is 192.168.1.5
+echo If you open up a site, it sees "this guy is 123.45.67.89" not the private 192.168.1.5 IP.
+pause
+GOTO NETTIPS2
+GOTO :EOF
+
+:OPENPORT
+powershell -NoProfile -Command "foreach($p in @(80,443,22,21,3389,8080)){ $r=Test-NetConnection -ComputerName %~2 -Port $p -WarningAction SilentlyContinue; Write-Host ('Port ' + $p + ': ' + $(if($r.TcpTestSucceeded){'OPEN'}else{'CLOSED'})) }"
+GOTO :EOF
+
+:IPINFO
+FOR /F "tokens=*" %%i IN ('powershell -NoProfile -Command "Invoke-RestMethod -Uri https://api.ipify.org"') DO SET "PublicIP=%%i"
+echo Showing your IP information is a serious business! Do not show this during a stream or someone that you don't want unauthorized access to your IP information (may show current location).
+set /p "ynIP=Are you sure you want to continue? (y/n): "
+
+if /i not "!ynIP!"=="y" (
+    echo Aborted, IP information will not be shown.
+    GOTO :EOF
+)
+
+set /p "ynIPYr=Do you want to use your IP address? (y/n): "
+
+if /i "!ynIPYr!"=="y" (
+    echo Your IP address was chosen.
+    if not "!ipAddressSaved!"=="0" if not "!ipAddressSaved!"=="private" (
+        echo A saved config file found your IP address.
+        set /p "ynIPS=Do you want to use the saved IP address? (y/n): "
+        if /i "!ynIPS!"=="y" (
+            call :DECRYPTIP
+            set "TargetIP=!decryptedIP!"
+            echo Using saved IP address...
+            GOTO :IPINFOCOMMAND
+        )
+    )
+    set "TargetIP=!PublicIP!"
+    echo Using public IP address
+    GOTO :IPINFOCOMMAND
+)
+
+if /i "!ynIPYr!"=="n" (
+    echo Someone else's IP address was chosen.
+    set /p "TargetIP=What IP do you want to get info from? (Public IP): "
+    echo Using IP address: !TargetIP! ...
+    GOTO :IPINFOCOMMAND
+)
+
+echo Invalid selection. Please choose y or n.
+GOTO :EOF
+
+:IPINFOCOMMAND
+echo Fetching information for IP: !TargetIP! ...
+echo.
+
+set "_ipResult="
+for /f "delims=" %%R in ('curl -s "https://ipapi.co/!TargetIP!/json/" 2^>nul') do set "_ipResult=!_ipResult!%%R"
+
+echo !_ipResult! | findstr /i "RateLimited" >nul
+if !errorlevel! == 0 (
+    echo [ NOTICE ] The primary API cannot be currently used. Attempt 2...
+    echo.
+    curl -s "http://ip-api.com/json/!TargetIP!"
+    GOTO :EOF
+)
+
+echo !_ipResult!
+GOTO :EOF
+
+:CONFIGURATE
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: IST cannot be configurated, if you are not an administrator.
+    echo Please restart IST in normal mode.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+cls
+set "confTitle=Internet Servicing Tool - Configuration"
+echo !line!
+echo !spaces!!confTitle!
+echo !line!
+echo.
+echo     [1] - Setup your Wi-Fi name                        [7]  - Driver installer
+echo     [2] - Set IST as PATH                              [8]  - YOLO configuration
+echo     [3] - Install IST as local program                 [9]  - Uninstall IST as local program
+echo     [4] - Administration restart                       [10] - View IST Logs / Debug
+echo     [5] - Set up your IP address                       [11] - Edit IST's code
+echo     [6] - Set up your Theme                            [12] - Updates IST
+echo     [H] - Help...                                      [Q]  - Quit
+echo.
+set /p "confChoice=Choose, what you want to configure... (1-12, Q, H): "
+if /i "%confChoice%"=="1"  (GOTO ISTWIFINAME)
+if /i "%confChoice%"=="2"  (GOTO ISTPATH)
+if /i "%confChoice%"=="3"  (GOTO SETUP)
+if /i "%confChoice%"=="4"  (GOTO ISTADM)
+if /i "%confChoice%"=="5"  (GOTO ISTIP)
+if /i "%confChoice%"=="6"  (GOTO THEME)
+if /i "%confChoice%"=="7"  (GOTO DRIVERS)
+if /i "%confChoice%"=="8"  (GOTO ISTYOLOCFG)
+if /i "%confChoice%"=="9"  (GOTO DEADUNINSTALL)
+if /i "%confChoice%"=="10" (GOTO ISTLOGS)
+if /i "%confChoice%"=="11" (GOTO ISTEDITCODE)
+if /i "%confChoice%"=="12" (GOTO UPDATE)
+if /i "%confChoice%"=="Q"  (GOTO :EOF)
+if /i "%confChoice%"=="H"  (GOTO ISTCFGHELP)
+echo Invalid selection. Please use 1-12, Q or H.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:ISTWIFINAME
+:: DisableDelayedExpansion for the use of !
+SETLOCAL DisableDelayedExpansion
+set /p "wifiName=What is your Wi-Fi name?: "
+powershell -NoProfile -Command "Set-Content -Path '%istPgf%\bin\wifiName.ist' -Value '%wifiName%' -NoNewline"
+echo [ OK ] Wi-Fi name saved.
+:: EnableDelayedExpansion back on
+SETLOCAL EnableDelayedExpansion
+GOTO :EOF
+
+:ISTPATH
+echo  Where do you want to add IST to the PATH?
+echo  [S] - System (All users, requires Admin)
+echo  [U] - User   (Current user only: %username%)
+echo  [B] - Back
+echo.
+set /p "pathChoice=What do you want to choose?: "
+if /i "%confChoice%"=="S"  (GOTO ISTPATHS)
+if /i "%confChoice%"=="U"  (GOTO ISTPATHU)
+if /i "%confChoice%"=="B"  (GOTO CONFIGURATE)
+echo Invalid selection. Please use S, U, or B.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:ISTPATHS
+setx /M PATH "%PATH%;%ISTPGF%\" >nul
+echo [ OK ] Added to System PATH.
+echo [ NOTICE ] You need to restart your terminal for the changes to take effect.
+set /p "restAsk=Do you want to restart the terminal? (y/n): "
+if "%restAsk%"=="y" (
+    GOTO RESTART
+    GOTO :EOF
+)
+if "%restAsk%"=="n" (
+    echo Restarting Aborted. Please restart manually to make the changes take effect.
+    GOTO :EOF
+)
+echo Invalid Answer
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:ISTPATHU
+setx PATH "%PATH%;%ISTPGF%\" >nul
+echo [ OK ] Added to User PATH.
+echo [ NOTICE ] You need to restart your terminal for the changes to take effect.
+set /p "restAsk=Do you want to restart the terminal? (y/n): "
+if "%restAsk%"=="y" (
+    GOTO RESTART
+    GOTO :EOF
+)
+if "%restAsk%"=="n" (
+    echo Restarting Aborted. Please restart manually to make the changes take effect.
+    GOTO :EOF
+)
+GOTO :EOF
+
+:ISTADM
+echo [1] - Restart as administrator (asked)
+echo [2] - Restart as administrator (automatic)
+echo [3] - Don't Restart as administrator
+echo [B] - Back
+set /p "admChoice=What do you want to choose?: "
+if /i "%admChoice%"=="1"  (
+    <nul set /p "=RADMASK">"%istPgf%\bin\admRestartConf.ist"
+    echo [ OK ] Administrator restart configured ^(asked^)
+    GOTO :EOF
+)
+if /i "%admChoice%"=="2"  (
+    <nul set /p "=RADMAUTO">"%istPgf%\bin\admRestartConf.ist"
+    echo [ OK ] Administrator restart configured ^(automatic^)
+    GOTO :EOF
+)
+if /i "%admChoice%"=="3"  (
+    <nul set /p "=RADMNO">"%istPgf%\bin\admRestartConf.ist"
+    echo [ OK ] Administrator restart disabled
+    GOTO :EOF
+)
+if /i "%admChoice%"=="B"  (GOTO CONFIGURATE)
+echo Invalid selection. Please use 1-3 or B.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:ISTIP
+powershell -NoProfile -Command "$s=Read-Host 'What is your IP address?' -AsSecureString; ConvertFrom-SecureString $s | Out-File '%istPgf%\bin\ipAddress.ist'"
+set /p "ipType=Is this a public or private IP address? (public/private): "
+if /i "%ipType%"=="public"  (
+    <nul set /p "=public">"%istPgf%\bin\ipType.ist"
+    echo [ OK ] IP address saved as public.
+    GOTO :EOF
+)
+if /i "%ipType%"=="private"  (
+    <nul set /p "=private">"%istPgf%\bin\ipType.ist"
+    echo [ OK ] IP address saved as private.
+    GOTO :EOF
+)
+echo Invalid selection. Please use public or private.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:ISTYOLOCFG
+echo [1] - YOLO by default (Not safe)
+echo [2] - YOLO using --yolo 
+echo [3] - Disable YOLO (Safe)
+echo [B] - Back
+echo.
+set /p "yoloChoice=What do you want to choose?: "
+if /i "%yoloChoice%"=="1"  (
+    echo YOLOAUTO > "%istPgf%\bin\yoloConf.ist"
+    echo [ OK ] YOLO is set to be used by default.
+    echo [ NOTICE ] Every time you run a deadzone command, YOLO will be enabled and so bypassing the confirmation prompt.
+    GOTO :EOF
+)
+if /i "%yoloChoice%"=="2"  (
+    echo YOLOFLAG > "%istPgf%\bin\yoloConf.ist"
+    echo [ OK ] YOLO is set to be used with the --yolo flag.
+    GOTO :EOF
+)
+if /i "%yoloChoice%"=="3"  (
+    echo YOLONO > "%istPgf%\bin\yoloConf.ist"
+    echo [ OK ] YOLO is disabled.
+    GOTO :EOF
+)
+if /i "%yoloChoice%"=="B"  (GOTO CONFIGURATE)
+echo Invalid selection. Please use 1-3 or B.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:ISTLOGS
+dir /b "%istPgf%\log-files\"
+set /p "logChoice=Which log do you want to open?: "
+if not exist "%istPgf%\log-files\%logChoice%" (
+    echo ERROR: The log file specified does not exist.
+    echo ERROR-CODE: 0x102
+    GOTO :EOF
+)
+notepad "%istPgf%\log-files\%logChoice%"
+GOTO :EOF
+
+:ISTEDITCODE
+notepad "%istPgf%\ist.bat"
+GOTO :EOF
+
+:ISTCFGHELP
+echo [1]  - Setup your Wi-Fi name
+echo [2]  - Set IST as PATH
+echo [3]  - Install IST as local program
+echo [4]  - Administration restart
+echo [5]  - Set up your IP address
+echo [6]  - Set up your Theme
+echo [7]  - Driver installer
+echo [8]  - YOLO configuration
+echo [9]  - Uninstall IST as local program
+echo [10] - View IST Logs / Debug
+echo [11] - Edit IST's code
+echo [12] - Updates IST
+echo [B]  - Back
+echo.   
+set /p "confHelpChoice=What do you want to know more about?: "
+if /i "!confHelpChoice!"=="1"  (
+    echo Saves your Wi-Fi name in a file, good for other scripts to use it, like the Wi-Fi password script.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="2"  (
+    echo Adds IST to the PATH, so you can use it from everywhere without having to be in the IST folder.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="3"  (
+    echo Installs IST as a local program (AppData and Program Files) and adds it to the PATH, so you can use it from everywhere without having to be in the IST folder.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="4"  (
+    echo Changes the way IST restarts as administrator.
+    echo The "asked" option:
+    echo - Will ask you every time you restart if you want to restart as administrator through a Y/n prompt.
+    echo The "automatic" option:
+    echo - Will just restart as administrator without asking
+    echo The "don't restart" option:
+    echo - will just not restart as administrator at all.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="5"  (
+    echo Saves your IP address in a file, good for other scripts to use it, like the IP info script. (encrypted for security reasons)
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="6"  (
+    echo Allows you to change the theme of the command prompt, to make it either more like Winter or straight up Death.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="7"  (
+    echo Allows you to install the drivers used by IST for the commands that require them.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="8"  (
+    echo Configures YOLO off 3 different configurations:
+    echo - YOLO for each DeadZone command (not safe)
+    echo - YOLO with only the use of the --yolo flag (50/50)
+    echo - YOLO disabled (safe)
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="9"  (
+    echo Uninstalls IST as a local program and puts it back to the downloads folder (%USERPROFILE%\Downloads)
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="10" (
+    echo Shows the log file you'd like to open, useful for debugging and spying onto people, who changed your IP address (or any DeadZone command)
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="11" (
+    echo Allows you to edit the code of IST, since IST is FaOSS (Free and Open Source) to your liking.
+    echo [ WARNING ] be careful, if you change something that you don't understand, it may break the program and you may have to redownload it.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="12" (
+    echo Updates IST to the latest version
+    echo [ NOTICE ] Updating will not reset the configuration data, change IST's PATH or change the way IST restarts as administrator.
+    pause
+    GOTO CONFIGURATE
+    GOTO :EOF
+)
+if /i "!confHelpChoice!"=="B"  (GOTO CONFIGURATE)
+echo Invalid selection. Please use 1-12 or B.
+echo ERROR-CODE: 0x102
+pause
+GOTO :EOF
+
+:LINECOUNT
+echo Counting the lines of code in IST...
+echo The lines of code of IST are: !lineCount!.
+echo.
+echo In the previous IST version (%prvVersion%), it was %prvLineCount%
+echo The current line count is %lineCount%.
+set /a "lineCountDiff=lineCount - prvLineCount"
+echo That is %lineCountDiff% more lines than %prvVersion%^^!
+GOTO :EOF
+
+:VIEWHOSTS
+if exist "%SystemRoot%\System32\drivers\etc\hosts" (
+    findstr /v /r "^#" "%SystemRoot%\System32\drivers\etc\hosts" | findstr /r "[a-zA-Z0-9]"
+    GOTO :EOF
+) else (
+    echo [ NOTICE ] The Hosts file in System32 cannot be found by IST.
+    GOTO :EOF
+)
+GOTO :EOF
+
+:CHECKPORT
+if "%~2"=="" (
+    set /p "checkPort=What port do you want to check?: "
+) else (
+    set "checkPort=%~2"
+)
+netstat -ano | findstr ":%checkPort% " | findstr "LISTENING" >nul 2>&1
+if %errorlevel%==0 (
+    echo Port %checkPort% is already in use.
+) else (
+    echo Port %checkPort% is free to use.
+)
+GOTO :EOF
+
+:DEADRENEW
+if "%YOLO%"=="1" GOTO :RENEW_DO
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will temporarily disconnect you from the internet.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, IP address stays intact. 
+    GOTO :EOF
+)
+
+:RENEW_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (Renew) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Resetting Ip Address...
+ipconfig /release >nul 2>&1
+echo [ OK ] Connection dropped.
+echo.
+echo Requesting New IP Address...
+:: Note: Renew can take a moment, so we don't use >nul here, so the user can see progress if it hangs.
+ipconfig /renew
+echo [ OK ] IP Address successfully renewed.
+set YOLO=0
+GOTO :EOF
+
+:DEADRMDRIVER
+if "%YOLO%"=="1" GOTO :RMDRIVER_DO
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will remove all the network drivers for IST.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, Network drivers remained intact.
+    GOTO :EOF
+)
+
+:RMDRIVER_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (RMDriver) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Uninstalling drivers...
+winget uninstall --id Ookla.Speedtest.CLI -e --silent >nul 2>&1
+
+echo.
+echo [ OK ] IST Network drivers have been removed.
+set YOLO=0
+GOTO :EOF
+
+:DEADRMSOCK
+if "%YOLO%"=="1" GOTO :RMSOCK_DO
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Resetting WinSock REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will reset the Windows Sockets API to factory defaults.
+echo All active network connections will be terminated,
+echo and a full system restart is REQUIRED to restore internet functionality.
+echo Use this only if you can connect to a network but cannot load any data.
+echo.
+echo WinSock also is not a sock.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, WinSock is untouched.
+    GOTO :EOF
+)
+
+:RMSOCK_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (RMSock) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Resetting WinSock...
+netsh winsock reset >nul 2>&1
+echo [ OK ] WinSock has been reset.
+echo [ NOTICE ] Due to WinSock being reset, your computer needs to restart, to be able to use the Internet again.
+echo And We will restart for you (60 second timer)
+set /p "confirm=Are you sure you want restart automatically? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, Please Restart manually
+    GOTO :EOF
+)
+echo Please save any changes. you have 60 seconds.
+shutdown /r /t 60
+set YOLO=0
+GOTO :EOF
+
+:DEADFIRE
+if "%YOLO%"=="1" GOTO :FIRE_DO
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will reset you FireWall Settings to factory defaults.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, FireWall settings stay intact.
+    GOTO :EOF
+)
+
+:FIRE_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (Reset FireWall) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Resetting FireWall...
+netsh advfirewall reset
+
+echo [ OK ] Reset Complete.
+set YOLO=0
+GOTO :EOF
+
+:DEADIPV6
+if "%YOLO%"=="1" GOTO :IPV6_DO
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Changing the the IPv6 Permissions REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This Will Turn Off IPv6.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, DNS stays to what it stays.
+    GOTO :EOF
+)
+
+:IPV6_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (IPv6) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Turning IPv6 Off...
+netsh int ipv6 set teredo disabled
+echo [ OK ] Execution finished
+set YOLO=0
+GOTO :EOF
+
+:DEADDNS
+if "%YOLO%"=="1" GOTO :DNS_DO
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Changing the DNS REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This Will reset your DNS to googles DNS (8.8.8.8)
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, DNS stays to what it stayed.
+    GOTO :EOF
+)
+
+:DNS_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (DNS) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Setting DNS...
+for /f "tokens=3*" %%i in ('netsh interface show interface ^| findstr /I "Connected"') do (
+    set "actAdp=%%j"
+)
+
+:: Apply the DNS to the detected adapter
+if defined actAdp (
+    echo [ OK ] Found active adapter: %actAdp%
+    netsh interface ip set dns name="%actAdp%" source=static address=8.8.8.8
+    netsh interface ip add dns name="%actAdp%" addr=8.8.4.4 index=2
+) else (
+    echo ERROR: Could not detect an active network adapter.
+    echo ERROR-CODE: 0x5
+    GOTO :EOF
+)
+echo [ OK ] DNS set to 8.8.8.8
+set YOLO=0
+GOTO :EOF
+
+:DEADUNINSTALL
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Uninstalling IST, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+if "%YOLO%"=="1" GOTO :UNINSTALL_DO
+set "UTtitle=IST: Internet Servicing Tool Uninstallation"
+echo !line!
+echo !spaces!!UTtitle!
+echo !line!
+
+if not exist "%PROGRAMFILES%\IST\IST.bat" (
+    echo ERROR: IST is not installed in Program Files.
+    echo There is nothing to uninstall.
+    echo ERROR-CODE: 0x001
+    GOTO :EOF
+)
+
+if not exist "%LOCALAPPDATA%\IST\IST.bat" (
+    echo ERROR: IST is not installed as a local program.
+    echo There is nothing to uninstall.
+    echo ERROR-CODE: 0x001
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This Will Uninstall IST
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%"=="n" (
+    echo Aborted, IST stays Untouched.
+    GOTO :EOF
+)
+if /i "%confirm%"=="y" (
+    GOTO UNINSTALL_DO
+    GOTO :EOF
+)
+echo Invalid Selection.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:UNINSTALL_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (uninstaller) >> "%temp%\istActions.txt"
+)
+
+:: Self-copy trick so the folder isn't locked
+copy /y "%~f0" "%temp%\IST_Remover.bat" >nul
+start "" "%temp%\IST_Remover.bat" --EXEC-UNINSTALL "%istPgf%" "%type%"
+exit /b
+
+:PROCEED_UNINSTALL
+:: Receives %istPgf% and %type% as arguments from the temp copy
+set "istPgf=%~2"
+set "type=%~3"
+
+:: 1/4 Keep portable copy
+echo [1/4] Keeping IST in Downloads...
+copy /y "%~f0" "%USERPROFILE%\Downloads\IST_Portable.bat" >nul
+echo [ OK ] Done.
+
+:: 2/4 Remove files
+echo [2/4] Removing Files...
+rd /s /q "%istPgf%"
+echo [ OK ] Done.
+
+:: 3/4 Remove from PATH
+echo [3/4] Removing IST from PATH...
+powershell -NoProfile -Command "$p=[Environment]::GetEnvironmentVariable('Path','Machine'); $p=$p -replace ';%istPgf:\=\\%',''; [Environment]::SetEnvironmentVariable('Path',$p,'Machine')"
+
+:: 4/4 Flush DNS
+echo [4/4] Flushing DNS...
+ipconfig /flushdns >nul
+echo [ OK ] Done.
+
+echo Uninstallation Finished.
+timeout /t 3 >nul
+GOTO :EOF
+
+:DEADRSARP
+if "%YOLO%"=="1" GOTO RSARP_DO
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Resetting ARP, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo.
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo Reset ARP.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, ARP Stays untouched.
+    GOTO :EOF
+)
+
+:RSARP_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (Reset ARP) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Resetting ARP...
+arp -d *
+set YOLO=0
+GOTO :EOF
+
+:DEADWIPEALL
+if "%YOLO%"=="1" GOTO WIPEALL_DO
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Resettings WinSock and renewing your IP, REQUIRES Administrator permission.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will reset the Windows Sockets API to factory defaults.
+echo All active network connections will be terminated,
+echo and a full system restart is REQUIRED to restore internet functionality.
+echo Use this only if you can connect to a network but cannot load any data.
+echo This will also renew your IP address.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+if /i "%confirm%" neq "y" (
+    echo Aborted, WinSock and the IP address stay untouched.
+    GOTO :EOF
+)
+
+:WIPEALL_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (Wipe All) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Resetting Ip Address...
+ipconfig /release >nul 2>&1
+echo [ OK ] Connection dropped.
+echo.
+echo Requesting New IP Address...
+:: Note: Renew can take a moment, so we don't use >nul here, so the user can see progress if it hangs.
+ipconfig /renew
+echo [ OK ] IP Address successfully renewed.
+echo.
+echo Resetting WinSock...
+netsh winsock reset >nul 2>&1
+echo [ OK ] WinSock has been reset.
+echo [ NOTICE ] Due to WinSock being reset, your computer needs to restart, to be able to use the Internet again.
+echo And We will restart for you (60 second timer)
+set /p "confirm=Are you sure you want restart automatically? (y/n): "
+
+if /i "%confirm%" neq "y" (
+    echo Aborted, Please Restart manually
+    GOTO :EOF
+)
+echo Please save any changes. you have 60 seconds.
+shutdown /r /t 60
+set YOLO=0
+GOTO :EOF
+
+:DEADRNDMAC
+if "%YOLO%"=="1" GOTO RNDMAC_DO
+:: Administrator rights?
+if not "%admStat%"=="1" call :RADM_CHECK %1
+if not "%admStat%"=="1" (
+    echo ERROR: Changing your MAC address, REQUIRES Administrator privileges.
+    echo Please Restart the terminal as Administrator.
+    echo ERROR-CODE: 0x2
+    GOTO :EOF
+)
+
+echo WARNING: You are about to run a DEAD ZONE command. This may harm your windows device. Proceed with caution.
+echo This will let you change your MAC address to anything you want.
+echo This will also disconnect you temporarily from the internet.
+set /p "confirm=Are you sure you want to proceed? (y/n): "
+if /i "%confirm%" neq "y" (
+    echo Aborted, the MAC address stays untouched.
+    GOTO :EOF
+)
+
+:RNDMAC_DO
+if exist "%istPgf%\log-files" (
+    echo [%date% %time%] Did A DeadZone Command (Wipe All) >> "%istPgf%\log-files\Actions.txt"
+)
+echo.
+echo Available adapters:
+netsh interface show interface
+echo.
+set /p "adapter=Enter adapter name (e.g. Wi-Fi, Ethernet): "
+set /p "newMac=Enter new MAC address (format: XX-XX-XX-XX-XX-XX): "
+powershell -NoProfile -Command "Set-NetAdapter -Name '%adapter%' -MacAddress '%newMac%' -Confirm:$false"
+if %errorlevel%==0 (
+    echo [ OK ] MAC address changed to %newMac%.
+    echo [ NOTICE ] You may need to disable and re-enable the adapter for changes to take effect.
+) else (
+    echo [ ERROR ] Failed to change MAC address.
+    echo ERROR-CODE: 0x5
+)
+GOTO :EOF
+
+:VERSION
+cls
+set "vertitle=IST: Internet Servicing Tool Version Manager"
+echo !line!
+echo !spaces!!vertitle!
+echo !line!
+
+:: Operating System version
+    :: OS build
+for /f "tokens=3" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v CurrentBuild') do (
+    for /f "tokens=3" %%b in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v UBR') do (
+        set /a "decUBR=%%b"
+        set "osBuildFull=10.0.%%a.!decUBR!"
+    )
+)
+for /f "tokens=3" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v CurrentBuild') do set "osBuild=%%a"
+set "VER=Windows 10"
+if %osBuild% GEQ 22000 set "VER=Windows 11"
+    :: Edition for Windows
+for /f "tokens=3" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID') do set "id=%%a"
+if /i "%id%"=="Core" set "osName=%VER% Home"
+if /i "%id%"=="CoreCountrySpecific" set "osName=%VER% Home"
+if /i "%id%"=="Professional" set "osName=%VER% Professional"
+if /i "%id%"=="Enterprise" set "osName=%VER% Enterprise"
+if /i "%id%"=="Education" set "osName=%VER% Education"
+if /i "%id%"=="ProfessionalEducation" set "osName=%VER% Professional Education"
+if /i "%id%"=="ProfessionalWorkstation" set "osName=%VER% Professional for Workstations"
+if "%osName%"=="" set "osName=%VER% %id%"
+
+:: Versions
+echo IST - version v%version%
+echo IST-Network-Configuration-Driver Version - %istncdVER%
+echo Operating System Version - %osName% (Build %osBuildFull%)
+echo Type of installation - %type%
+echo User Type - %admLab%
+GOTO :EOF
+
+:WN
+cls
+set "WNTitle=IST: Internet Servicing Tool - What is new?"
+set "NAC=Newly Added Commands"
+set "NACDEAD=Newly Added DEADZONE Commands"
+set "BUGF=Bug Fixes"
+set "prvLineC=Line count gain (previous vs. v%version%)"
+set "RELNOTE=      IST Release notes for v%version%"
+echo !line!
+echo !spaces!!WNTitle!
+echo !line!
+echo [1] - Newly added commands
+echo [2] - Bug Fixes
+echo [3] - The Line count difference from the previous version
+echo [4] - Release Notes v%version%
+echo [Q] - Quit
+set /p "choiceWN=Chose what you want to open: "
+if /i "%choiceWN%"=="1" (GOTO WNNAC)
+if /i "%choiceWN%"=="2" (GOTO WNBUG)
+if /i "%choiceWN%"=="3" (GOTO WNLIN)
+if /i "%choiceWN%"=="4" (GOTO WNRELNOTES)
+if /i "%choiceWN%"=="Q" (GOTO :EOF)
+echo Invalid selection. Please use 1-4 or q.
+echo ERROR-CODE: 0x102
+GOTO :EOF
+
+:WNNAC
+echo.
+echo !line!
+echo !spaces!!NAC!
+echo !line!
+echo.
+echo In Update v%version% we added %nCmdCount% new Commands.
+echo All new Commands:
+echo.
+echo    ist --configurate                    - Opens the configuration menu, where you can customize IST to your liking
+echo    ist -hosts-view                      - Shows the content of the hosts file in System32
+echo    ist --line-count                     - Shows how many lines of code IST has
+echo.
+echo !line!
+echo !spaces!!NACDEAD!
+echo !line!
+echo    ist --deadzone-wipeall              - Resets WinSock and Renews the IP address
+echo    ist --deadzone-change-mac           - Changes the MAC address to anything you want
+GOTO :EOF
+
+:WNBUG
+echo.
+echo !line!
+echo !spaces!!BUGF!
+echo !line!
+echo.
+echo !spaces!In Update v%version% we Fixed 0 Bug(s)
+echo !line!
+echo !spaces!     There are no bugs in v%version%.
+echo !line!
+echo.
+echo All Fixed Bugs:
+set "REPO=stefi9/IST"
+
+:: This PowerShell command fetches the last 5 closed issues and formats them
+set "PSSCRIPT=$url='https://api.github.com/repos/%REPO%/issues?state=closed&per_page=5'; $issues=Invoke-RestMethod -Uri $url -Headers @{'User-Agent'='IST-Updater'}; if($issues.Count -eq 0){Write-Host 'No fixed bugs found.'} else { foreach($i in $issues){Write-Host ('#'+$i.number+': '+$i.title)} }"
+powershell -NoProfile -Command "%PSSCRIPT%"
+echo.
+if %errorlevel% neq 0 (
+    echo ERROR: Could not connect to the bug tracker.
+    echo ERROR-CODE: 0x5
+)
+GOTO :EOF
+
+:WNLIN
+echo.
+echo !line!
+echo !spaces!!prvLineC!
+echo !line!
+echo.
+echo In the previous IST version (%prvVersion%), it was %prvLineCount%
+echo The current line count is %lineCount%.
+set /a "lineCountDiff=lineCount - prvLineCount"
+echo That is %lineCountDiff% more lines than %prvVersion%^^!
+GOTO :EOF
+
+:WNRELNOTES
+echo.
+echo !line!
+echo !spaces!!RELNOTE!
+echo !line!
+echo.
+echo Welcome to the IST v%version% path notes. Here will everything be added, what IST added in v%version%
+echo IST v%version% added the following:
+echo - Integrity Checker (ran on startup)
+echo.
+echo - 5 new commands
+echo --configure
+echo -hosts-view
+echo --line-count
+echo DEADZONE (finally, after 1.5)
+echo --deadzone-wipe-all
+echo --deadzone-change-mac
+echo.
+echo - Configurator, Configures IST to your liking
+echo - Code Cleanup
+echo.
+echo - Networking tips
+echo Net Tips 1:
+echo Proxy
+echo NAT
+echo TLS
+echo Net Tips 2:
+echo What is a Firewall?
+echo How a single S changes your security
+echo What is the difference between a public and private IP?
+echo.
+echo - Updated Network Configuration Driver
+echo Added WinGet install option
+echo.
+GOTO :EOF
+
+:HELP
+cls
+set "helptitle=IST: Internet Servicing Tool Help Centre"
+echo !line!
+echo !spaces!!helptitle!
+echo !line!
+
+echo [1] - Every command
+echo [2] - Old commands
+echo [3] - New commands
+echo [Q] - Quit
+echo.
+set /p "HELPCH=What do you want to open? "
+if "!HELPCH!"=="1" (
+    set "helpAera=Every Command"
+    GOTO H1
+    GOTO :EOF
+)
+if "!HELPCH!"=="2" (
+    set "helpAera=Old Commands"
+    GOTO H2
+    GOTO :EOF
+)
+if "!HELPCH!"=="3" (
+    set "helpAera=New Commands"
+    GOTO H3
+    GOTO :EOF
+)
+if /i "!HELPCH!"=="Q" (
+    GOTO :EOF
+)
+echo ERROR: Invalid selection
+echo ERROR-CODE: 0x102
+pause
+GOTO HELP
+
+:H1
+:H2
+echo    ist -check-network                  - Runs the speedtest script
+echo    ist -ip                             - Shows your IP addresses
+echo    ist -dns [user input]               - Shows the DNS of a URL
+echo    ist -ping                           - Pings the server chosen (if no server is chosen, google.com is set by default)
+echo    ist -flushdns                       - Evicts DNS Cache, may also help with internet issues
+echo    ist -info                           - Shows information about internet in general on your device
+echo    ist -mac                            - Shows MAC address
+echo    ist -hostname                       - Shows the device's name, the name that the router will recognize as the name of the device
+echo    ist -listend-ports                  - Shows the ports currently getting listend by programs
+echo    ist -apps                           - Lists all programs currently using the internet
+echo    ist -monitor                        - Shows you a refreshing view, of how much data is being sent and received every 5 seconds
+echo    ist -max-speed                      - Shows the maximum speed your network card can output
+echo    ist -list-connected-nets            - Shows every network ever connected to the windows device
+echo    ist -list-pass [user input]         - Shows WiFi Password
+echo    ist -list-wifi-info [user input]    - Shows WiFi Info of a specified WiFi network
+echo    ist -trace [user input]             - Shows what other IPs/URLs a website needs before you can use it
+echo    ist -active-ips                     - Shows Currently active IPs
+echo    ist -dns-cache-history              - Shows DNS cache that built up by the internet
+echo    ist --install-drivers [user input]  - Installs the selected IST drivers
+echo    ist -usage                          - Lists how many bytes were Recieved and Sent
+echo    ist -adapter-status                 - Lists the status of every network adapter
+echo    ist -gateway                        - Shows The Windows Device's Gateway
+echo    ist --install                       - Installs IST as a Local Program instead of a portable one
+echo    ist -set-dns [user input]           - Sets a custom DNS
+echo    ist -show-log                       - Shows all log files
+echo    ist --update                        - Shows if IST has updates available
+echo    ist -optimize                       - Optiizes The Computer (in terms of Networking)
+echo    ist -type                           - Shows what type of program IST iis (portable or installed)
+echo    ist -export-log                     - Exports every Log to the desktop
+echo    ist -restart                        - Restarts the Terminal
+echo    ist  --reinstall                    - Reinstalls IST
+echo    ist -installed-time                 - See The time, when IST was installed as local program
+echo    ist -check-use                      - Is the Internet even Working?
+echo    ist -connection                     - The Type of the current Internet connection IST can detect
+echo    ist -show-log-amount                - Shows All Logs in IST
+echo    ist --whats-new                     - Shows Everything New to IST (like now Commands and more)
+echo    ist --error-codes                   - Shows Info about a given Error Code
+echo    ist --tui                           - Opens Up IST TUI mode (experiental)
+echo    ist -check-proxy                    - Checks The Proxy
+echo    ist -convert-bits                   - Converts Bits to bytes
+echo    ist -export-configs                 - Exports the Configs for the Network Tools in Windows
+echo    ist --help                          - Shows the Help Centre (Current Menu)
+echo    ist --version                       - Shows the IST version and the IST-network-configuration-driver version
+
+echo.
+:: Dead zone
+:: helptitle 2
+set "helptitle2=IST: Internet Servicing Tool DEAD ZONE"
+
+echo !line!
+echo !spaces!!helptitle2!
+echo !line!
+echo The following commands are dangerous to the windows device. May harm your device.
+echo proceed with caution.
+echo !line!
+echo    ist --deadzone-renew                - Makes a new IP address for your windows device
+echo    ist --deadzone-remove-driver        - Removes the Network Configuration drivers
+echo    ist --deadzone-rmwinsock            - Resets WinSock, may fix "connected, but no internet" issues
+echo    ist --deadzone-reset-firewall       - Resets the rules of the firewall (good if you made mistakes in it)
+echo    ist --deadzone-ipv6-off             - Turns off IPv6 IPs (recommended for older routers, that hate IPv6)
+echo    ist --deadzone-set-dns              - Sets the dns to googles DNS (good, if you mistakenly set a non-working DNS)
+echo    ist --deadzone-uninstall            - Uninstalls IST but downloads the Portable one back
+echo    ist --deadzone-reset-arp            - Resets ARP
+echo    ist --deadzone-change-mac           - Changes the MAC address to anything you want
+echo    ist --deadzone-tui                  - Launches the DeadZone TUI
+echo    ist --deadzone-[command] --yolo     - If you have --yolo, the DeadZone will be executed without a conformation screen
+if "%helpAera%"=="Old Commands" (
+    echo.
+    echo IST has %lineCount% lines of Code.
+    echo Need more help? Go to https://github.com/Stefi9/IST/issues for more info.
+    GOTO :EOF
+)
+
+:H3
+:: helptitle3
+set "helptitle3=IST: Internet Servicing Tool New Commands"
+:: Title DeadZone
+set "helptitledead=              DEAD ZONE"
+
+echo !line!
+echo !spaces!!helptitle3!                   
+echo !line!
+echo.
+echo   ist --configure                     - Configures IST to your liking
+echo   ist -hosts-view                     - Shows the content of the hosts file in System32
+echo   ist --line-count                    - Shows how many lines of code IST has
+echo.
+echo !line!
+echo !spaces!!helptitledead!
+echo !line!
+echo   ist --deadzone-wipe-all             - Wipes the WinSock and renews the IP address
+echo   ist --deadzone-change-mac           - Changes the MAC address to anything you want
+echo.
+echo Amount of Commands in this IST installation: %cmdCount%
+echo Amount of Newly added Commands: %nCmdCount%
+echo.
+echo IST has %lineCount% lines of Code.
+echo Need more help? Go to https://github.com/Stefi9/IST/issues for more info.
+if "%helpAera%"=="Every Command" (
+    GOTO :EOF
+)
+if "%helpAera%"=="New Commands" (
+    GOTO :EOF
+)
+
+:USE
+echo ERROR: The command ' %1 ' was not recognized as a command or external script of IST.
+echo Do 'echo 1^| ist --help' for the commands available.
+echo ERROR-CODE: 0x102
+GOTO :EOF
