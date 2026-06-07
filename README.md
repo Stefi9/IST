@@ -59,3 +59,5 @@ A: Kind of, you reached the end of the Q&A. There might still be things on its w
 ## Showcases:
 ![Here's a showcase of the TUI](assetsMain/terminalTuiIst.png)
 ![Here's a showcase of the help menu of the new commands](assetsMain/terminalHelpIst.png)
+
+Back to the question, now the README ended.
