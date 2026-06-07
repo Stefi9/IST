@@ -32,6 +32,7 @@ A: This is going to be true for every version. But, these are the system require
 - A 64-Bit Windows version with NT version 10 (Windows 10 and later)
 - PowerShell (built-in PowerShell, not pwsh)
 - cmd.exe (for the actual executor of IST)
+
 Not required, but recommended:
 - Administrator access (for DeadZone commands and some network operations)
 - WinGet (for driver installation via -install-drivers)
